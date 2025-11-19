@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
+import * as CANNON from 'cannon-es'
+
 const scene = new THREE.Scene()
 const camera: any = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
 
@@ -32,13 +34,17 @@ const fallbackMesh: any = new THREE.Mesh(fallbackGeometry, fallbackMaterial)
 scene.add(fallbackMesh)
 
 // Add simple lighting and helpers to ensure scene visibility
-const ambient: any = new THREE.AmbientLight(0xffffff, 0.6)
+const ambient: any = new THREE.AmbientLight(0xffffff, 2)
 scene.add(ambient)
-const dirLight: any = new THREE.DirectionalLight(0xffffff, 0.8)
-dirLight.position.set(5, 5, 5)
+const dirLight: any = new THREE.DirectionalLight(0xffffff, 1.2)
+dirLight.position.set(5, 10, 5)
 scene.add(dirLight)
-scene.add(new THREE.GridHelper(10, 10) as any)
-scene.add(new THREE.AxesHelper(1.5) as any)
+
+const fill = new THREE.DirectionalLight(0xffffff, 1);
+fill.position.set(-5, 5, -5);
+scene.add(fill);
+
+renderer.setClearColor(0x87ceeb)
 
 camera.position.z = 3
 camera.lookAt(0, 0, 0)
@@ -123,3 +129,9 @@ window.addEventListener('resize', () => {
 	camera.updateProjectionMatrix()
 	renderer.setSize(window.innerWidth, window.innerHeight)
 })
+
+const world = new CANNON.World({
+    gravity: new CANNON.Vec3(0, -9.82, 0)
+})
+world.broadphase = new CANNON.SAPBroadphase(world)
+world.allowSleep = true

@@ -7,6 +7,9 @@ import * as CANNON from 'cannon-es'
 const scene = new THREE.Scene()
 const camera: any = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
 
+let playerMesh: THREE.Mesh | null = null;
+let playerBody: CANNON.Body | null = null;
+
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setClearColor(0x20232a)
@@ -18,6 +21,7 @@ controls.enableDamping = true
 controls.dampingFactor = 0.07
 controls.target.set(0, 0, 0)
 
+const loader = new GLTFLoader()
 // Debug info to help diagnose a black screen
 console.log('three renderer:', renderer)
 try {
@@ -50,76 +54,81 @@ camera.position.z = 3
 camera.lookAt(0, 0, 0)
 
 // GLTF/GLB loader. Place your exported file at `public/models/model.glb`.
-const loader = new GLTFLoader()
-console.log('Attempting to load /models/121Final.glb')
 loader.load(
- 	'/models/121Final.glb',
-	(gltf: any) => {
-		scene.remove(fallbackMesh)
-		const model: any = gltf.scene
+  '/models/121Final.glb',
+  (gltf: any) => {
+    scene.remove(fallbackMesh)
 
-		// Scale model to fit a 2-unit box
-		const box = new THREE.Box3().setFromObject(model)
-		const size = new THREE.Vector3()
-		box.getSize(size)
-		const maxDim = Math.max(size.x, size.y, size.z)
-		if (maxDim > 0) {
-			const scale = 2 / maxDim
-			model.scale.setScalar(scale)
-		}
+    const model = gltf.scene
+    scene.add(model)
 
-		// Recenter model
-		box.setFromObject(model)
-		const center = box.getCenter(new THREE.Vector3())
-		model.position.sub(center)
+    // Normalize model size
+    const box = new THREE.Box3().setFromObject(model)
+    const size = new THREE.Vector3()
+    box.getSize(size)
+    const maxDim = Math.max(size.x, size.y, size.z)
+    const scale = 2 / maxDim
+    model.scale.setScalar(scale)
 
-		scene.add(model)
+    // Re-center model
+    box.setFromObject(model)
+    const center = box.getCenter(new THREE.Vector3())
+    model.position.sub(center)
 
-		// Try to focus the camera on an object named "player" inside the model.
-		// If found, position the camera relative to that object; otherwise fall back
-		// to framing the whole model.
-		const player: any = model.getObjectByName('player') || model.getObjectByName('Player')
-		if (player) {
-			console.log('Found player object — focusing camera on it')
-			const pBox = new THREE.Box3().setFromObject(player)
-			const pCenter = pBox.getCenter(new THREE.Vector3())
-			const pSize = pBox.getSize(new THREE.Vector3())
-			const maxP = Math.max(pSize.x, pSize.y, pSize.z)
-			const camDist = maxP > 0 ? maxP * 2 : 3
-			// place camera slightly above and behind the player center
-			camera.position.set(pCenter.x, pCenter.y + Math.max(1, maxP * 0.75), pCenter.z + camDist)
-			// point camera and update controls target
-			camera.lookAt(pCenter)
-			if (controls) {
-				controls.target.copy(pCenter)
-				controls.update()
-			}
-		} else {
-			console.log('No "player" object found — framing entire model')
-			// Position camera so the whole model fits
-			const distance = box.getSize(new THREE.Vector3()).length()
-			camera.position.z = Math.max(3, distance * 1.5)
-			const modelCenter = box.getCenter(new THREE.Vector3())
-			camera.lookAt(modelCenter)
-			if (controls) {
-				controls.target.copy(modelCenter)
-				controls.update()
-			}
-		}
-	},
-	undefined,
-	(error: any) => {
-		console.error('Error loading model:', error)
-	}
+    //Find Player Object
+    const player =
+      model.getObjectByName('player') || model.getObjectByName('Player')
+
+    if (player) {
+      console.log("Player object found!")
+      playerMesh = player
+
+      // Compute size and center
+      const pBox = new THREE.Box3().setFromObject(player)
+      const pSize = new THREE.Vector3()
+      pBox.getSize(pSize)
+      const radius = Math.max(pSize.x, pSize.y, pSize.z) / 2
+      const pCenter = pBox.getCenter(new THREE.Vector3())
+
+      const sphereShape = new CANNON.Sphere(radius)
+      playerBody = new CANNON.Body({
+        mass: 1,
+        shape: sphereShape,
+        position: new CANNON.Vec3(pCenter.x, pCenter.y, pCenter.z),
+      })
+      world.addBody(playerBody)
+
+      // Camera focus
+      const camDist = radius * 4
+      camera.position.set(pCenter.x, pCenter.y + radius * 2, pCenter.z + camDist)
+      camera.lookAt(pCenter)
+      controls.target.copy(pCenter)
+      controls.update()
+    } else {
+      console.warn("Player object NOT found; using whole model for camera focus")
+
+      const center = box.getCenter(new THREE.Vector3())
+      camera.position.set(center.x, center.y + 2, center.z + 5)
+      camera.lookAt(center)
+      controls.target.copy(center)
+    }
+  },
+  undefined,
+  (err: any) => console.error('GLB load error:', err)
 )
 
 function animate() {
 	requestAnimationFrame(animate)
+	world.step(1/60);
 	fallbackMesh.rotation.x += 0.01
 	fallbackMesh.rotation.y += 0.01
 	// update controls for damping
 	if (controls && typeof controls.update === 'function') controls.update()
 	renderer.render(scene, camera)
+	if (playerMesh && playerBody) {
+		playerMesh.position.copy(playerBody.position as any);
+		playerMesh.quaternion.copy(playerBody.quaternion as any);
+	}
 }
 
 animate()
@@ -129,6 +138,17 @@ window.addEventListener('resize', () => {
 	camera.updateProjectionMatrix()
 	renderer.setSize(window.innerWidth, window.innerHeight)
 })
+
+const force = 5;
+
+window.addEventListener('keydown', (e) => {
+    if (!playerBody) return;
+
+    if (e.key === 'w') playerBody.applyForce(new CANNON.Vec3(0, 0, -force), playerBody.position);
+    if (e.key === 's') playerBody.applyForce(new CANNON.Vec3(0, 0, force), playerBody.position);
+    if (e.key === 'a') playerBody.applyForce(new CANNON.Vec3(-force, 0, 0), playerBody.position);
+    if (e.key === 'd') playerBody.applyForce(new CANNON.Vec3(force, 0, 0), playerBody.position);
+});
 
 const world = new CANNON.World({
     gravity: new CANNON.Vec3(0, -9.82, 0)

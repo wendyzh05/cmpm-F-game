@@ -131,6 +131,33 @@ loader.load(
 
     }
 );
+
+const keys = {
+    w: false,
+    a: false,
+    s: false,
+    d: false
+};
+
+document.addEventListener('keydown', (event) => {
+    switch (event.code) {
+        case 'KeyW': keys.w = true; break;
+        case 'KeyA': keys.a = true; break;
+        case 'KeyS': keys.s = true; break;
+        case 'KeyD': keys.d = true; break;
+    }
+});
+
+document.addEventListener('keyup', (event) => {
+    switch (event.code) {
+        case 'KeyW': keys.w = false; break;
+        case 'KeyA': keys.a = false; break;
+        case 'KeyS': keys.s = false; break;
+        case 'KeyD': keys.d = false; break;
+    }
+});
+
+const moveSpeed = 0.1; 
     
 function animate() {
     requestAnimationFrame(animate)
@@ -145,10 +172,19 @@ function animate() {
     // Update controls for damping
     controls.update()
     
-    // Sync physics with graphics
-    if (playerMesh && playerBody) {
-        playerMesh.position.copy(playerBody.position as any)
-        playerMesh.quaternion.copy(playerBody.quaternion as any)
+    if (playerMesh) { 
+        if (keys.a) {
+            playerMesh.translateZ(-moveSpeed); 
+        }
+        if (keys.d) {
+            playerMesh.translateZ(moveSpeed); 
+        }
+        if (keys.s) {
+            playerMesh.translateX(-moveSpeed); 
+        }
+        if (keys.w) {
+            playerMesh.translateX(moveSpeed); 
+        }
     }
     
     renderer.render(scene, camera)
@@ -156,15 +192,15 @@ function animate() {
 
 animate()
 
-window.addEventListener('resize', () => {
+/*window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight
     camera.updateProjectionMatrix()
     renderer.setSize(window.innerWidth, window.innerHeight)
-})
+})*/
 
-const force = 5
+//const force = 5
 
-window.addEventListener('keydown', (e) => {
+/*window.addEventListener('keydown', (e) => {
     if (!playerBody) {
         console.warn('Player body not ready yet')
         return
@@ -178,4 +214,4 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 's') playerBody.applyForce(new CANNON.Vec3(0, 0, force), playerBody.position)
     if (e.key === 'a') playerBody.applyForce(new CANNON.Vec3(-force, 0, 0), playerBody.position)
     if (e.key === 'd') playerBody.applyForce(new CANNON.Vec3(force, 0, 0), playerBody.position)
-})
+})*/

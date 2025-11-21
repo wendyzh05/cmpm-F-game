@@ -56,6 +56,7 @@ world.addContactMaterial(contactMaterial);
 
 // Debug visualization
 const debugBodies = [];
+let spawnAdjusted = false; 
 
 function addDebugVisualization(body) {
   const shape = body.shapes[0];
@@ -78,7 +79,6 @@ function addDebugVisualization(body) {
 }
 
 function createPhysicsBody(mesh) {
-  // Skip decorative / thin / torus-ish meshes
   const lname = mesh.name.toLowerCase();
   if (
     lname.includes("light") ||
@@ -128,6 +128,12 @@ function createPhysicsBody(mesh) {
   body.type = CANNON.Body.STATIC;
 
   world.addBody(body);
+
+  try {
+    mesh.userData.colliderBody = body;
+  } catch (e) {
+    // ignore
+  }
 
   console.log(
     `✅ ${mesh.name}`,
@@ -184,19 +190,16 @@ loader.load(
           console.log("found end mesh:", child.name);
         }
 
-        // If you made explicit colliders named col_* you'd hide them here:
         if (child.name && child.name.startsWith("col_")) child.visible = false;
       }
     });
 
-    // spawn puzzle box on cubestart if it exists
     if (cubeStart) {
       spawnPuzzleBoxAt(cubeStart);
     } else {
       console.warn("cubestart not found — puzzle box not spawned.");
     }
 
-    // place player at start if startPoint exists
     if (startPoint) {
       const startWorldPos = new THREE.Vector3();
       startPoint.getWorldPosition(startWorldPos);
@@ -236,89 +239,86 @@ scene.add(playerMesh);
 const keys = {};
 window.addEventListener("keydown", (e) => {
   keys[e.key.toLowerCase()] = true;
-  if (e.code === "Space") tryJump();
-});
+  if (e.code === "Space") {
+    console.log("SPACE PRESSED");
+    tryJump();
+  }
+})
 window.addEventListener("keyup", (e) => {
   keys[e.key.toLowerCase()] = false;
 });
 
-let isGrounded = false;
-let lastGroundTime = 0;
-
-playerBody.addEventListener('collide', (e) => {
+playerBody.addEventListener("collide", (e) => {
   const contact = e.contact;
-  if (contact.bi.id === playerBody.id) {
-    if (contact.ni.y < -0.5) {
-      isGrounded = true;
-    }
-  } else {
-    if (contact.ni.y > 0.5) {
-      isGrounded = true;
-    }
+  const normal = contact.ni.clone();
+
+  if (contact.bi === playerBody) {
+    normal.negate();
   }
-  if (normalY > 0.3) {
-    isGrounded = true;
-    lastGroundTime = Date.now();
-    
-    // clamp speed on landing
-    const maxSpeed = 10;
-    const speed = Math.sqrt(
-      playerBody.velocity.x ** 2 + 
-      playerBody.velocity.z ** 2
-    );
-    if (speed > maxSpeed) {
-      const scale = maxSpeed / speed;
-      playerBody.velocity.x *= scale;
-      playerBody.velocity.z *= scale;
-    }
+
+  if (normal.y > 0.5) {
+    canJump = true;
+    lastGroundTime = performance.now();
   }
 });
 
 function tryJump() {
-  if (Math.abs(playerBody.velocity.y) < 0.5) {
-    // Keep momentum
-    const currentVelX = playerBody.velocity.x;
-    const currentVelZ = playerBody.velocity.z;
-    
-    playerBody.velocity.y = 0;
-    
-    const jumpForce = new CANNON.Vec3(
-      currentVelX * 0.1,
-      4.5,
-      currentVelZ * 0.1 
-    );
-    
-    playerBody.applyImpulse(jumpForce, playerBody.position);
-    console.log("⏫ Directional jump!");
-  }
+  const onGround = Math.abs(playerBody.velocity.y) < 0.2;
+  if (!onGround) return;
+
+    const vy = playerBody.velocity.y;
+    if (Math.abs(vy) < 0.4) {
+      const jumpSpeed = 6;
+      playerBody.velocity.y = jumpSpeed;
+      console.log("⏫ Player jumped (vertical only)");
+    }
+
+  console.log("⏫ Vertical jump!");
 }
 
 function handleMovement() {
-  const forceMagnitude = 10; // reduced from 20
-  const forward = new CANNON.Vec3(0, 0, -forceMagnitude);
-  const backward = new CANNON.Vec3(0, 0, forceMagnitude);
-  const left = new CANNON.Vec3(-forceMagnitude, 0, 0);
-  const right = new CANNON.Vec3(forceMagnitude, 0, 0);
+  const forceMagnitude = 5; 
 
-  if (keys["w"]) playerBody.applyForce(forward, playerBody.position);
-  if (keys["s"]) playerBody.applyForce(backward, playerBody.position);
-  if (keys["a"]) playerBody.applyForce(left, playerBody.position);
-  if (keys["d"]) playerBody.applyForce(right, playerBody.position);
+  const camForward = new THREE.Vector3();
+  camera.getWorldDirection(camForward);
+  camForward.y = 0;
+  camForward.normalize();
 
-  const maxSpeed = 10;
+  const camRight = new THREE.Vector3();
+  camRight.crossVectors(camForward, new THREE.Vector3(0, 1, 0)).normalize();
+
+  const fForward = new CANNON.Vec3(camForward.x * forceMagnitude, 0, camForward.z * forceMagnitude);
+  const fBackward = new CANNON.Vec3(-camForward.x * forceMagnitude, 0, -camForward.z * forceMagnitude);
+  const fRight = new CANNON.Vec3(camRight.x * forceMagnitude, 0, camRight.z * forceMagnitude);
+  const fLeft = new CANNON.Vec3(-camRight.x * forceMagnitude, 0, -camRight.z * forceMagnitude);
+
+  const onGround = Math.abs(playerBody.velocity.y) < 0.2;
+  if (!onGround) {
+    const maxAirSpeed = 8;
+    playerBody.velocity.x = Math.max(-maxAirSpeed, Math.min(maxAirSpeed, playerBody.velocity.x));
+    playerBody.velocity.z = Math.max(-maxAirSpeed, Math.min(maxAirSpeed, playerBody.velocity.z));
+    return;
+  }
+
+  if (keys["w"]) playerBody.applyForce(fForward, playerBody.position);
+  if (keys["s"]) playerBody.applyForce(fBackward, playerBody.position);
+  if (keys["a"]) playerBody.applyForce(fLeft, playerBody.position);
+  if (keys["d"]) playerBody.applyForce(fRight, playerBody.position);
+
+  const maxSpeed = 5; // lower speed cap
   playerBody.velocity.x = Math.max(-maxSpeed, Math.min(maxSpeed, playerBody.velocity.x));
   playerBody.velocity.z = Math.max(-maxSpeed, Math.min(maxSpeed, playerBody.velocity.z));
 }
 
 //SpawnBox
 function spawnPuzzleBoxAt(targetMesh) {
-  const pos = new THREE.Vector3();
-  targetMesh.getWorldPosition(pos);
-  targetMesh.geometry.computeBoundingBox();
-  const box = targetMesh.geometry.boundingBox;
-  const height = box.max.y - box.min.y;
+  
+  const worldBox = new THREE.Box3().setFromObject(targetMesh);
+  const center = worldBox.getCenter(new THREE.Vector3());
+  const size = worldBox.getSize(new THREE.Vector3());
 
-  // THREE visible cube
+  const platformTopY = worldBox.max.y;
+
   const geo = new THREE.BoxGeometry(1, 1, 1);
   const mat = new THREE.MeshStandardMaterial({ color: 0x00aaff });
   puzzleMesh = new THREE.Mesh(geo, mat);
@@ -326,19 +326,28 @@ function spawnPuzzleBoxAt(targetMesh) {
   puzzleMesh.receiveShadow = true;
   scene.add(puzzleMesh);
 
-  // CANNON physics cube
   const half = new CANNON.Vec3(0.5, 0.5, 0.5);
   const shape = new CANNON.Box(half);
+
   puzzleBody = new CANNON.Body({
-    mass: 0.1,
+    mass: 1,              
     shape: shape,
-    position: new CANNON.Vec3(pos.x, pos.y + height + 0.5, pos.z),
-    material: physicsMaterial
+    material: physicsMaterial,
+    position: new CANNON.Vec3(
+      center.x,
+      platformTopY + half.y + 1.5, 
+      center.z
+    )
   });
 
   world.addBody(puzzleBody);
 
-  console.log("📦 Puzzle box spawned at cubestart");
+  puzzleMesh.position.copy(puzzleBody.position);
+  puzzleMesh.quaternion.copy(puzzleBody.quaternion);
+
+  console.log("📦 Puzzle box spawned:");
+  console.log("   platform top Y:", platformTopY.toFixed(2));
+  console.log("   box position:", puzzleBody.position);
 }
 
 // Check if puzzle is solved
@@ -363,16 +372,40 @@ function checkPuzzleSolved() {
 
 // Animation Loop
 const clock = new THREE.Clock();
-const camOffset = new THREE.Vector3(0, 5, 10);
+const camOffset = new THREE.Vector3(10, 5, 0); // rotated 90° to the right of the player
 const followPos = new THREE.Vector3();
 
 function animate() {
   requestAnimationFrame(animate);
 
   const delta = clock.getDelta();
-  world.step(1 / 60, delta, 10);  
+    
+    if (startPoint && !spawnAdjusted) {
+      const worldPos = new THREE.Vector3();
+      startPoint.getWorldPosition(worldPos);
 
-  isGrounded = false;
+      let spawnY = worldPos.y + 2; // fallback
+      const collider = startPoint.userData && startPoint.userData.colliderBody;
+      if (collider && collider.shapes && collider.shapes[0] instanceof CANNON.Box) {
+        const halfY = collider.shapes[0].halfExtents.y;
+        spawnY = collider.position.y + halfY + radius + 0.1;
+        console.log('🔧 Adjusting spawn to collider top at Y =', spawnY.toFixed(2));
+      } else {
+        const bbox = new THREE.Box3().setFromObject(startPoint);
+        if (!bbox.isEmpty()) {
+          spawnY = bbox.max.y + radius + 0.1;
+          console.log('🔧 Adjusting spawn to bbox top at Y =', bbox.max.y.toFixed(2));
+        }
+      }
+
+      playerBody.position.set(worldPos.x, spawnY, worldPos.z);
+      playerBody.velocity.set(0, 0, 0);
+      if (typeof playerBody.wakeUp === 'function') playerBody.wakeUp();
+      playerMesh.position.copy(playerBody.position);
+      spawnAdjusted = true;
+    }
+
+    world.step(1 / 60, delta, 10);  
 
   handleMovement();
 

@@ -55,6 +55,29 @@ const contactMaterial = new CANNON.ContactMaterial(
 );
 world.addContactMaterial(contactMaterial);
 
+// Separate materials for player and puzzle box so we can tune friction when they touch
+const playerPhysicsMaterial = new CANNON.Material("player");
+const boxPhysicsMaterial = new CANNON.Material("box");
+const playerBoxContact = new CANNON.ContactMaterial(
+  playerPhysicsMaterial,
+  boxPhysicsMaterial,
+  {
+    friction: 0.0, // allow smooth sliding when player pushes box
+    restitution: 0.0,
+  }
+);
+world.addContactMaterial(playerBoxContact);
+// Box-to-ground contact: allow sliding but keep some friction so the box doesn't glide forever
+const boxGroundContact = new CANNON.ContactMaterial(
+  boxPhysicsMaterial,
+  physicsMaterial,
+  {
+    friction: 0.4,
+    restitution: 0.0,
+  }
+);
+world.addContactMaterial(boxGroundContact);
+
 
 // Debug visualization
 const debugBodies = [];
@@ -266,7 +289,7 @@ loader.load(
           cubeEnd = child;
           console.log("found cubeend");
         }
-        if (child.name === "end1" || child.name === "end2" || child.name === "end3") {
+        if (child.name === "end1" || child.name === "end2" || child.name === "end3" || child.name === "end4") {
           endMeshes.push(child);
           child.visible = false; // hide until puzzle solved
           console.log("found end mesh:", child.name);
@@ -313,7 +336,7 @@ const playerBody = new CANNON.Body({
   mass: 1,
   shape: playerShape,
   position: new CANNON.Vec3(0, 10, 0),
-  material: physicsMaterial,
+  material: playerPhysicsMaterial,
   linearDamping: 0.4,
   angularDamping: 0.6,
   restitution: 0.0
@@ -407,6 +430,53 @@ function handleMovement() {
   const maxSpeed = 5; // lower speed cap
   playerBody.velocity.x = Math.max(-maxSpeed, Math.min(maxSpeed, playerBody.velocity.x));
   playerBody.velocity.z = Math.max(-maxSpeed, Math.min(maxSpeed, playerBody.velocity.z));
+
+  // If player is pushing against the puzzle box, apply a gentle push to the box
+  if (puzzleBody) {
+    const px = playerBody.position.x;
+    const pz = playerBody.position.z;
+    const bx = puzzleBody.position.x;
+    const bz = puzzleBody.position.z;
+    const dx = bx - px;
+    const dz = bz - pz;
+    const horizDist = Math.sqrt(dx * dx + dz * dz);
+
+    // threshold: player radius + box half-width + small padding
+    const pushThreshold = radius + 0.5 + 0.2;
+    if (horizDist <= pushThreshold) {
+      const moveDir = new THREE.Vector3();
+      if (keys['w']) moveDir.add(camForward);
+      if (keys['s']) moveDir.sub(camForward);
+      if (keys['d']) moveDir.add(camRight);
+      if (keys['a']) moveDir.sub(camRight);
+
+      if (moveDir.lengthSq() > 0.001) {
+        moveDir.normalize();
+
+        // compute horizontal player speed to scale push strength
+        const playerSpeed = Math.sqrt(playerBody.velocity.x * playerBody.velocity.x + playerBody.velocity.z * playerBody.velocity.z);
+        const speedFactor = Math.max(0.35, Math.min(1.0, playerSpeed / 4));
+
+        const basePush = 20; // base push strength; tuned for visible, smooth movement
+        const pushForce = basePush * speedFactor;
+
+        // apply force slightly below the center to reduce torque and keep box stable
+        const contactPoint = new CANNON.Vec3(
+          puzzleBody.position.x,
+          puzzleBody.position.y - 0.35,
+          puzzleBody.position.z
+        );
+
+        const push = new CANNON.Vec3(moveDir.x * pushForce, 0, moveDir.z * pushForce);
+        puzzleBody.applyForce(push, contactPoint);
+
+        // slightly damp player so it doesn't bounce; leave most of velocity intact
+        playerBody.velocity.scale(0.9, playerBody.velocity);
+        // reduce box small amount to avoid explosion of velocities
+        puzzleBody.velocity.scale(0.995, puzzleBody.velocity);
+      }
+    }
+  }
 }
 
 //SpawnBox
@@ -431,13 +501,19 @@ function spawnPuzzleBoxAt(targetMesh) {
   puzzleBody = new CANNON.Body({
     mass: 1,              
     shape: shape,
-    material: physicsMaterial,
+    material: boxPhysicsMaterial,
     position: new CANNON.Vec3(
       center.x,
       platformTopY + half.y + 1.5, 
       center.z
     )
   });
+
+  // Make the puzzle box respond smoothly to pushes: add damping and ensure collision response
+  // moderate linear damping so the box moves but doesn't jitter; keep angular damping high
+  puzzleBody.linearDamping = 0.2;
+  puzzleBody.angularDamping = 0.9;
+  puzzleBody.collisionResponse = true;
 
   world.addBody(puzzleBody);
 
@@ -451,7 +527,23 @@ function spawnPuzzleBoxAt(targetMesh) {
 
 // Reset helpers
 function resetPlayerToStart() {
-  if (!startPoint) return;
+  // If we don't have a start point (map may not define one), fall back to a safe default
+  if (!startPoint) {
+    console.warn('resetPlayerToStart: startPoint not found, using fallback spawn');
+    const fallbackX = 0;
+    const fallbackY = 10;
+    const fallbackZ = 0;
+    playerBody.position.set(fallbackX, fallbackY, fallbackZ);
+    playerBody.velocity.set(0, 0, 0);
+    playerBody.angularVelocity.set(0, 0, 0);
+    if (typeof playerBody.wakeUp === 'function') playerBody.wakeUp();
+    playerMesh.position.copy(playerBody.position);
+    spawnAdjusted = true;
+    lastResetTime = performance.now();
+    console.log('↺ Player reset to fallback spawn');
+    return;
+  }
+
   const worldPos = new THREE.Vector3();
   startPoint.getWorldPosition(worldPos);
 
@@ -467,6 +559,7 @@ function resetPlayerToStart() {
 
   playerBody.position.set(worldPos.x, spawnY, worldPos.z);
   playerBody.velocity.set(0, 0, 0);
+  playerBody.angularVelocity.set(0, 0, 0);
   if (typeof playerBody.wakeUp === 'function') playerBody.wakeUp();
   playerMesh.position.copy(playerBody.position);
   spawnAdjusted = true;
@@ -570,10 +663,12 @@ function animate() {
   const now = performance.now();
   const resetCooldown = 500; // ms
   if (now - lastResetTime > resetCooldown) {
-    if (playerBody.position.y < mapMinY - 5) {
+    // Use a safe threshold: either below the map minimum or a reasonable world minimum
+    const fallThreshold = Math.max(typeof mapMinY === 'number' ? mapMinY - 5 : -20, -20);
+    if (playerBody.position.y < fallThreshold) {
       resetPlayerToStart();
     }
-    if (puzzleBody && puzzleBody.position.y < mapMinY - 5) {
+    if (puzzleBody && puzzleBody.position.y < fallThreshold) {
       resetPuzzleToStart();
     }
   }

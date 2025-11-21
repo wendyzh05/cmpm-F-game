@@ -130,12 +130,10 @@ function createPhysicsBody(mesh) {
   world.addBody(body);
 
   console.log(
-    "✅ Created collision body for:",
-    mesh.name,
-    "center:",
-    body.position,
-    "halfExtents:",
-    halfExtents
+    `✅ ${mesh.name}`,
+    `\n   Position: (${worldCenter.x.toFixed(2)}, ${worldCenter.y.toFixed(2)}, ${worldCenter.z.toFixed(2)})`,
+    `\n   HalfExtents: (${halfExtents.x.toFixed(2)}, ${halfExtents.y.toFixed(2)}, ${halfExtents.z.toFixed(2)})`,
+    `\n   Scale: (${worldScale.x.toFixed(2)}, ${worldScale.y.toFixed(2)}, ${worldScale.z.toFixed(2)})`
   );
 
   addDebugVisualization(body);

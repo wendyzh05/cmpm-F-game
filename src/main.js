@@ -40,6 +40,8 @@ const world = new CANNON.World({
 });
 world.broadphase = new CANNON.SAPBroadphase(world);
 world.allowSleep = true;
+world.solver.iterations = 20;
+world.solver.tolerance = 1e-3;
 
 // Physics Materials
 const physicsMaterial = new CANNON.Material("physics");
@@ -57,6 +59,8 @@ world.addContactMaterial(contactMaterial);
 // Debug visualization
 const debugBodies = [];
 let spawnAdjusted = false; 
+let mapMinY = -50; 
+let lastResetTime = 0;
 
 function addDebugVisualization(body) {
   const shape = body.shapes[0];
@@ -81,11 +85,11 @@ function addDebugVisualization(body) {
 function createPhysicsBody(mesh) {
   const lname = mesh.name.toLowerCase();
   if (
-    lname.includes("light") ||
-    lname.includes("torus") ||
+    lname.includes("box") ||
+    lname.includes("cylinder") ||
     mesh.geometry === undefined
   ) {
-    console.log("⏭️ Skipping:", mesh.name);
+    console.log("⏭ Skipping:", mesh.name);
     return;
   }
 
@@ -136,13 +140,84 @@ function createPhysicsBody(mesh) {
   }
 
   console.log(
-    `✅ ${mesh.name}`,
+    ` ${mesh.name}`,
     `\n   Position: (${worldCenter.x.toFixed(2)}, ${worldCenter.y.toFixed(2)}, ${worldCenter.z.toFixed(2)})`,
     `\n   HalfExtents: (${halfExtents.x.toFixed(2)}, ${halfExtents.y.toFixed(2)}, ${halfExtents.z.toFixed(2)})`,
     `\n   Scale: (${worldScale.x.toFixed(2)}, ${worldScale.y.toFixed(2)}, ${worldScale.z.toFixed(2)})`
   );
 
   addDebugVisualization(body);
+}
+
+function createHiddenPathCollider(mesh) {
+  try {
+    if (!mesh.geometry) return null;
+
+    // compute local bbox
+    mesh.geometry.computeBoundingBox();
+    const localBox = mesh.geometry.boundingBox.clone();
+    const localSize = new THREE.Vector3();
+    localBox.getSize(localSize);
+    const localCenter = new THREE.Vector3();
+    localBox.getCenter(localCenter);
+
+    // world transform
+    mesh.updateWorldMatrix(true, true);
+    const worldPos = new THREE.Vector3();
+    const worldQuat = new THREE.Quaternion();
+    const worldScale = new THREE.Vector3();
+    mesh.matrixWorld.decompose(worldPos, worldQuat, worldScale);
+
+    // center in world space
+    const worldCenter = localCenter.clone().applyMatrix4(mesh.matrixWorld);
+
+    const scaledSize = new THREE.Vector3(
+      Math.abs(localSize.x * worldScale.x),
+      Math.abs(localSize.y * worldScale.y),
+      Math.abs(localSize.z * worldScale.z)
+    );
+
+    const PAD = 0.02;             
+    const MIN_HALF_XZ = 0.05;    
+    const MIN_HALF_Y  = 0.25;      
+
+    const halfX = Math.max(MIN_HALF_XZ, scaledSize.x * 0.5 + PAD);
+    const halfY = Math.max(MIN_HALF_Y,  scaledSize.y * 0.5 + PAD);
+    const halfZ = Math.max(MIN_HALF_XZ, scaledSize.z * 0.5 + PAD);
+
+    const shape = new CANNON.Box(new CANNON.Vec3(halfX, halfY, halfZ));
+    const body = new CANNON.Body({
+      mass: 0,
+      shape,
+      material: physicsMaterial,
+    });
+
+    body.position.set(worldCenter.x, worldCenter.y, worldCenter.z);
+    body.quaternion.set(worldQuat.x, worldQuat.y, worldQuat.z, worldQuat.w);
+    body.type = CANNON.Body.STATIC;
+    body.collisionResponse = true;
+
+    world.addBody(body);
+    body.updateAABB(); 
+
+    mesh.userData.pathCollider = body;
+
+    // debug wireframe stays helpful
+    addDebugVisualization(body);
+
+    // dev log
+    console.log(
+      'Hidden collider:',
+      mesh.name || '(unnamed)',
+      'pos', body.position,
+      'half', { x: halfX.toFixed(3), y: halfY.toFixed(3), z: halfZ.toFixed(3) }
+    );
+
+    return body;
+  } catch (e) {
+    console.warn('Failed to create hidden path collider for', mesh.name, e);
+    return null;
+  }
 }
 
 let platformBodies = [];
@@ -161,16 +236,23 @@ loader.load(
     const map = gltf.scene;
     scene.add(map);
 
-    console.log("🎨 Model loaded successfully!");
+    try {
+      const mapBox = new THREE.Box3().setFromObject(map);
+      if (!mapBox.isEmpty()) mapMinY = mapBox.min.y;
+      console.log('Map min Y =', mapMinY);
+    } catch (e) {
+      console.warn('Failed to compute map bounds', e);
+    }
 
-    // traverse to create static colliders and find special objects
+    console.log(" Model loaded successfully!");
+
     map.traverse((child) => {
       if (child instanceof THREE.Mesh) {
-        child.castShadow = child.receiveShadow = true;
-        createPhysicsBody(child);
+          if (child.geometry === undefined) return;
+          child.castShadow = child.receiveShadow = true;
+          
+          createHiddenPathCollider(child);
 
-
-        // find special named objects
         const n = (child.name || "").toLowerCase();
         if (n === "start" || child.name === "start") {
           startPoint = child;
@@ -193,6 +275,16 @@ loader.load(
         if (child.name && child.name.startsWith("col_")) child.visible = false;
       }
     });
+
+    try {
+      const colliders = [];
+      map.traverse(c => { if (c.userData && c.userData.pathCollider) colliders.push({name: c.name, pos: c.userData.pathCollider.position, halfExtents: c.userData.pathCollider.shapes && c.userData.pathCollider.shapes[0] && c.userData.pathCollider.shapes[0].halfExtents}); });
+      console.log(`Map traversal complete. Created ${colliders.length} hidden colliders.`);
+      if (colliders.length > 0) console.table(colliders.map(c => ({name: c.name, x: c.pos.x.toFixed(2), y: c.pos.y.toFixed(2), z: c.pos.z.toFixed(2), hx: c.halfExtents.x.toFixed(2), hy: c.halfExtents.y.toFixed(2), hz: c.halfExtents.z.toFixed(2)})));
+      console.log('Total physics bodies in world:', world.bodies.length);
+    } catch (e) {
+      console.warn('Failed to enumerate colliders', e);
+    }
 
     if (cubeStart) {
       spawnPuzzleBoxAt(cubeStart);
@@ -300,6 +392,13 @@ function handleMovement() {
     return;
   }
 
+  const anyInput = keys["w"] || keys["a"] || keys["s"] || keys["d"];
+  if (!anyInput) {
+    playerBody.velocity.x = 0;
+    playerBody.velocity.z = 0;
+    return;
+  }
+
   if (keys["w"]) playerBody.applyForce(fForward, playerBody.position);
   if (keys["s"]) playerBody.applyForce(fBackward, playerBody.position);
   if (keys["a"]) playerBody.applyForce(fLeft, playerBody.position);
@@ -348,6 +447,47 @@ function spawnPuzzleBoxAt(targetMesh) {
   console.log("📦 Puzzle box spawned:");
   console.log("   platform top Y:", platformTopY.toFixed(2));
   console.log("   box position:", puzzleBody.position);
+}
+
+// Reset helpers
+function resetPlayerToStart() {
+  if (!startPoint) return;
+  const worldPos = new THREE.Vector3();
+  startPoint.getWorldPosition(worldPos);
+
+  let spawnY = worldPos.y + 2;
+  const collider = startPoint.userData && startPoint.userData.colliderBody;
+  if (collider && collider.shapes && collider.shapes[0] instanceof CANNON.Box) {
+    const halfY = collider.shapes[0].halfExtents.y;
+    spawnY = collider.position.y + halfY + radius + 0.1;
+  } else {
+    const bbox = new THREE.Box3().setFromObject(startPoint);
+    if (!bbox.isEmpty()) spawnY = bbox.max.y + radius + 0.1;
+  }
+
+  playerBody.position.set(worldPos.x, spawnY, worldPos.z);
+  playerBody.velocity.set(0, 0, 0);
+  if (typeof playerBody.wakeUp === 'function') playerBody.wakeUp();
+  playerMesh.position.copy(playerBody.position);
+  spawnAdjusted = true;
+  lastResetTime = performance.now();
+  console.log('↺ Player reset to start');
+}
+
+function resetPuzzleToStart() {
+  if (!cubeStart || !puzzleBody) return;
+  const worldBox = new THREE.Box3().setFromObject(cubeStart);
+  const center = worldBox.getCenter(new THREE.Vector3());
+  const platformTopY = worldBox.max.y;
+  const half = new CANNON.Vec3(0.5, 0.5, 0.5);
+
+  puzzleBody.position.set(center.x, platformTopY + half.y + 1.5, center.z);
+  puzzleBody.velocity.set(0, 0, 0);
+  puzzleBody.angularVelocity.set(0, 0, 0);
+  if (typeof puzzleBody.wakeUp === 'function') puzzleBody.wakeUp();
+  if (puzzleMesh) puzzleMesh.position.copy(puzzleBody.position);
+  lastResetTime = performance.now();
+  console.log('↺ Puzzle box reset to cubestart');
 }
 
 // Check if puzzle is solved
@@ -424,6 +564,18 @@ function animate() {
   if (puzzleBody && puzzleMesh) {
     puzzleMesh.position.copy(puzzleBody.position);
     puzzleMesh.quaternion.copy(puzzleBody.quaternion);
+  }
+
+  // Respawn logic: if player or puzzle falls far below the map, reset them to their starts
+  const now = performance.now();
+  const resetCooldown = 500; // ms
+  if (now - lastResetTime > resetCooldown) {
+    if (playerBody.position.y < mapMinY - 5) {
+      resetPlayerToStart();
+    }
+    if (puzzleBody && puzzleBody.position.y < mapMinY - 5) {
+      resetPuzzleToStart();
+    }
   }
 
   checkPuzzleSolved();

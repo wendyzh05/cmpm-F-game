@@ -52,6 +52,13 @@ const contactMaterial = new CANNON.ContactMaterial(
   }
 );
 world.addContactMaterial(contactMaterial);
+// Use this contact material as the default for all contacts to ensure consistent friction/restitution
+world.defaultContactMaterial = contactMaterial;
+// Increase solver iterations for more stable contact resolution
+if (world.solver) {
+  world.solver.iterations = 10;
+  world.solver.tolerance = 0.001;
+}
 
 // Debug visualization
 const debugBodies = [];
@@ -187,6 +194,20 @@ const playerBody = new CANNON.Body({
 });
 world.addBody(playerBody);
 
+// Improve stability for the player body
+playerBody.linearDamping = 0.9; // reduces sliding and post-collision bounce
+playerBody.angularDamping = 0.9;
+playerBody.collisionResponse = true;
+
+// Clamp vertical velocity a bit on collision to avoid strong rebounds
+playerBody.addEventListener && playerBody.addEventListener('collide', (e) => {
+  // small heuristic: if hitting something and vertical speed is upwards (bounce), damp it
+  const vy = playerBody.velocity.y;
+  if (vy > 0.5) {
+    playerBody.velocity.y = vy * 0.2; // reduce rebound to 20%
+  }
+});
+
 const playerGeometry = new THREE.SphereGeometry(radius, 32, 32);
 const playerMaterial = new THREE.MeshStandardMaterial({ color: 0xff5555 });
 const playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
@@ -201,6 +222,25 @@ window.addEventListener("keydown", (e) => {
 });
 window.addEventListener("keyup", (e) => {
   keys[e.key.toLowerCase()] = false;
+});
+
+// Left-click drag to look around: enable OrbitControls while left mouse button is pressed
+renderer.domElement.addEventListener('mousedown', (e) => {
+  if (e.button === 0) { // left button
+    isMouseDragging = true;
+    controls.enabled = true;
+    // Orbit around the player's current position
+    controls.target.copy(playerMesh.position);
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (e.button === 0 && isMouseDragging) {
+    isMouseDragging = false;
+    // preserve current offset so follow continues from the current camera pose
+    camOffset.copy(camera.position).sub(playerMesh.position);
+    controls.enabled = false;
+  }
 });
 
 function tryJump() {
@@ -231,8 +271,9 @@ function handleMovement() {
 
 // Animation Loop
 const clock = new THREE.Clock();
-const camOffset = new THREE.Vector3(0, 5, 10);
+let camOffset = new THREE.Vector3(0, 5, 10); // mutable so we can preserve offset after manual look
 const followPos = new THREE.Vector3();
+let isMouseDragging = false;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -250,9 +291,17 @@ function animate() {
     mesh.quaternion.copy(body.quaternion);
   });
 
-  followPos.copy(playerMesh.position).add(camOffset);
-  camera.position.lerp(followPos, 0.1);
-  camera.lookAt(playerMesh.position);
+  
+  if (!isMouseDragging) {
+    followPos.copy(playerMesh.position).add(camOffset);
+    camera.position.lerp(followPos, 0.1);
+    camera.lookAt(playerMesh.position);
+    // keep controls.target synced to player so when user starts dragging it orbits around player
+    controls.target.copy(playerMesh.position);
+  }
+
+  // Always update controls for damping to work (no-op when disabled)
+  controls.update();
 
   renderer.render(scene, camera);
 }

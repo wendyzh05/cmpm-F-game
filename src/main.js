@@ -36,7 +36,7 @@ scene.add(sunLight);
 
 // Physics World
 const world = new CANNON.World({
-  gravity: new CANNON.Vec3(0, -9.82, 0),
+  gravity: new CANNON.Vec3(0, -15, 0),
 });
 world.broadphase = new CANNON.SAPBroadphase(world);
 world.allowSleep = true;
@@ -48,10 +48,11 @@ const contactMaterial = new CANNON.ContactMaterial(
   physicsMaterial,
   {
     friction: 0.9,
-    restitution: 0.0, // reduced bounce for more stability
+    restitution: 0.0,
   }
 );
 world.addContactMaterial(contactMaterial);
+
 
 // Debug visualization
 const debugBodies = [];
@@ -80,7 +81,6 @@ function createPhysicsBody(mesh) {
   // Skip decorative / thin / torus-ish meshes
   const lname = mesh.name.toLowerCase();
   if (
-    lname.includes("start") ||
     lname.includes("light") ||
     lname.includes("torus") ||
     mesh.geometry === undefined
@@ -139,51 +139,89 @@ function createPhysicsBody(mesh) {
   addDebugVisualization(body);
 }
 
+let platformBodies = [];
+
 // Load Blender Map
 const loader = new GLTFLoader();
+let cubeStart = null;
+let cubeEnd = null;
+const endMeshes = [];
+let puzzleMesh = null;
+let puzzleBody = null;
 let startPoint;
 loader.load(
-  "/models/121Final.glb",
+  "/models/121F1.glb",
   (gltf) => {
     const map = gltf.scene;
     scene.add(map);
 
     console.log("🎨 Model loaded successfully!");
+
+    // traverse to create static colliders and find special objects
     map.traverse((child) => {
-      if (child.isMesh) {
+      if (child instanceof THREE.Mesh) {
         child.castShadow = child.receiveShadow = true;
         createPhysicsBody(child);
+
+
+        // find special named objects
+        const n = (child.name || "").toLowerCase();
+        if (n === "start" || child.name === "start") {
+          startPoint = child;
+          console.log("found start:", child.name);
+        }
+        if (n === "cubestart" || child.name === "cubestart") {
+          cubeStart = child;
+          console.log("found cubestart");
+        }
+        if (n === "cubeend" || child.name === "cubeend") {
+          cubeEnd = child;
+          console.log("found cubeend");
+        }
+        if (child.name === "end1" || child.name === "end2" || child.name === "end3") {
+          endMeshes.push(child);
+          child.visible = false; // hide until puzzle solved
+          console.log("found end mesh:", child.name);
+        }
+
+        // If you made explicit colliders named col_* you'd hide them here:
+        if (child.name && child.name.startsWith("col_")) child.visible = false;
       }
     });
 
-    startPoint = map.getObjectByName("start");
-    if (!startPoint) {
-      console.warn("❌ No object named 'start' found in Blender!");
+    // spawn puzzle box on cubestart if it exists
+    if (cubeStart) {
+      spawnPuzzleBoxAt(cubeStart);
     } else {
-      console.log("✅ Found start point!");
-      const worldPos = new THREE.Vector3();
-      startPoint.getWorldPosition(worldPos);
-    
-      playerBody.linearDamping = 0.9;
-      playerBody.position.set(worldPos.x, worldPos.y + 20, worldPos.z);
-      playerMesh.position.copy(playerBody.position);
-      console.log("🎮 Player spawned at:", worldPos);
+      console.warn("cubestart not found — puzzle box not spawned.");
     }
-  },
-  undefined,
-  (err) => {
-    console.error("Error loading GLB:", err);
-  }
-);
+
+    // place player at start if startPoint exists
+    if (startPoint) {
+      const startWorldPos = new THREE.Vector3();
+      startPoint.getWorldPosition(startWorldPos);
+      playerBody.position.set(startWorldPos.x, startWorldPos.y + 2, startWorldPos.z);
+      playerMesh.position.copy(playerBody.position);
+      console.log("spawned player at start:", startWorldPos);
+    } else {
+      console.warn("start point not found, player remains at default spawn.");
+    }
+
+  }, undefined, (err) => {
+    console.error("GLB load error:", err);
+});
 
 // Player Sphere
-const radius = 1;
+const radius = 0.5;
 const playerShape = new CANNON.Sphere(radius);
 const playerBody = new CANNON.Body({
   mass: 1,
   shape: playerShape,
   position: new CANNON.Vec3(0, 10, 0),
   material: physicsMaterial,
+  linearDamping: 0.4,
+  angularDamping: 0.6,
+  restitution: 0.0
 });
 world.addBody(playerBody);
 
@@ -194,6 +232,7 @@ playerMesh.castShadow = playerMesh.receiveShadow = true;
 scene.add(playerMesh);
 
 // Movement
+
 const keys = {};
 window.addEventListener("keydown", (e) => {
   keys[e.key.toLowerCase()] = true;
@@ -203,12 +242,54 @@ window.addEventListener("keyup", (e) => {
   keys[e.key.toLowerCase()] = false;
 });
 
+let isGrounded = false;
+let lastGroundTime = 0;
+
+playerBody.addEventListener('collide', (e) => {
+  const contact = e.contact;
+  if (contact.bi.id === playerBody.id) {
+    if (contact.ni.y < -0.5) {
+      isGrounded = true;
+    }
+  } else {
+    if (contact.ni.y > 0.5) {
+      isGrounded = true;
+    }
+  }
+  if (normalY > 0.3) {
+    isGrounded = true;
+    lastGroundTime = Date.now();
+    
+    // clamp speed on landing
+    const maxSpeed = 10;
+    const speed = Math.sqrt(
+      playerBody.velocity.x ** 2 + 
+      playerBody.velocity.z ** 2
+    );
+    if (speed > maxSpeed) {
+      const scale = maxSpeed / speed;
+      playerBody.velocity.x *= scale;
+      playerBody.velocity.z *= scale;
+    }
+  }
+});
+
 function tryJump() {
-  const vy = playerBody.velocity.y;
-  if (Math.abs(vy) < 0.4) {
-    const jumpImpulse = new CANNON.Vec3(0, 6, 0);
-    playerBody.applyImpulse(jumpImpulse, playerBody.position);
-    console.log("⏫ Player jumped");
+  if (Math.abs(playerBody.velocity.y) < 0.5) {
+    // Keep momentum
+    const currentVelX = playerBody.velocity.x;
+    const currentVelZ = playerBody.velocity.z;
+    
+    playerBody.velocity.y = 0;
+    
+    const jumpForce = new CANNON.Vec3(
+      currentVelX * 0.1,
+      4.5,
+      currentVelZ * 0.1 
+    );
+    
+    playerBody.applyImpulse(jumpForce, playerBody.position);
+    console.log("⏫ Directional jump!");
   }
 }
 
@@ -229,6 +310,57 @@ function handleMovement() {
   playerBody.velocity.z = Math.max(-maxSpeed, Math.min(maxSpeed, playerBody.velocity.z));
 }
 
+//SpawnBox
+function spawnPuzzleBoxAt(targetMesh) {
+  const pos = new THREE.Vector3();
+  targetMesh.getWorldPosition(pos);
+  targetMesh.geometry.computeBoundingBox();
+  const box = targetMesh.geometry.boundingBox;
+  const height = box.max.y - box.min.y;
+
+  // THREE visible cube
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x00aaff });
+  puzzleMesh = new THREE.Mesh(geo, mat);
+  puzzleMesh.castShadow = true;
+  puzzleMesh.receiveShadow = true;
+  scene.add(puzzleMesh);
+
+  // CANNON physics cube
+  const half = new CANNON.Vec3(0.5, 0.5, 0.5);
+  const shape = new CANNON.Box(half);
+  puzzleBody = new CANNON.Body({
+    mass: 0.1,
+    shape: shape,
+    position: new CANNON.Vec3(pos.x, pos.y + height + 0.5, pos.z),
+    material: physicsMaterial
+  });
+
+  world.addBody(puzzleBody);
+
+  console.log("📦 Puzzle box spawned at cubestart");
+}
+
+// Check if puzzle is solved
+function checkPuzzleSolved() {
+  if (!puzzleBody || !cubeEnd) return;
+
+  const puzzlePos = puzzleBody.position;
+  const endPos = new THREE.Vector3();
+  cubeEnd.getWorldPosition(endPos);
+
+  const dx = puzzlePos.x - endPos.x;
+  const dy = puzzlePos.y - endPos.y;
+  const dz = puzzlePos.z - endPos.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  if (dist < 1.5) {
+    // Reveal end platforms
+    endMeshes.forEach(m => (m.visible = true));
+    console.log("🎉 Puzzle solved! End platforms revealed.");
+  }
+}
+
 // Animation Loop
 const clock = new THREE.Clock();
 const camOffset = new THREE.Vector3(0, 5, 10);
@@ -238,7 +370,9 @@ function animate() {
   requestAnimationFrame(animate);
 
   const delta = clock.getDelta();
-  world.step(1 / 60, delta, 3);  // added substeps
+  world.step(1 / 60, delta, 10);  
+
+  isGrounded = false;
 
   handleMovement();
 
@@ -253,6 +387,13 @@ function animate() {
   followPos.copy(playerMesh.position).add(camOffset);
   camera.position.lerp(followPos, 0.1);
   camera.lookAt(playerMesh.position);
+
+  if (puzzleBody && puzzleMesh) {
+    puzzleMesh.position.copy(puzzleBody.position);
+    puzzleMesh.quaternion.copy(puzzleBody.quaternion);
+  }
+
+  checkPuzzleSolved();
 
   renderer.render(scene, camera);
 }

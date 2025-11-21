@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "→ Running lint-staged (prettier + eslint)…"
+npx lint-staged || exit 1
+
+echo "→ Type checking (tsc --noEmit)…"
+npm run -s typecheck || exit 1
+
+echo "✓ All checks passed."

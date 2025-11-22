@@ -1,5 +1,3 @@
-// src/main.js
-// @ts-check
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -154,23 +152,8 @@ let lastResetTime = 0;
  * @param {CANNON.Body} body
  */
 function addDebugVisualization(body) {
-  const shape = body.shapes[0];
-  if (shape instanceof CANNON.Box) {
-    const geometry = new THREE.BoxGeometry(
-      shape.halfExtents.x * 2,
-      shape.halfExtents.y * 2,
-      shape.halfExtents.z * 2
-    );
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x00ff00,
-      wireframe: true,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
-    mesh.position.copy(body.position);
-    mesh.quaternion.copy(body.quaternion);
-    debugBodies.push({ mesh, body });
-  }
+  // Debug visualization disabled in production — no-op to avoid green wireframes
+  return;
 }
 
 /**
@@ -807,6 +790,6 @@ animate();
 // Resize handling
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+  //camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });

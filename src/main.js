@@ -316,7 +316,7 @@ let puzzleBody = null;
  */
 let startPoint;
 loader.load(
-  "/models/121F1.glb",
+  `${import.meta.env.BASE_URL}models/121F1.glb`,
   (gltf) => {
     const map = gltf.scene;
     scene.add(map);

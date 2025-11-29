@@ -85,6 +85,13 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.enabled = false;
 
+//Click handling
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let keyMesh = null;
+let keyCollected = false;
+
+
 // Lights
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambientLight);
@@ -359,6 +366,29 @@ loader.load(
         }
 
         if (child.name && child.name.startsWith("col_")) child.visible = false;
+
+        if (child.name === "key") {
+          console.log("Found key platform:", child.name);
+
+          const box = new THREE.Box3().setFromObject(child);
+          const top = box.max;
+
+          const keyGeo = new THREE.BoxGeometry(0.3, 0.1, 0.7);
+          const keyMat = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+
+          keyMesh = new THREE.Mesh(keyGeo, keyMat);
+          keyMesh.castShadow = true;
+          keyMesh.receiveShadow = true;
+
+          keyMesh.position.set(
+            (box.min.x + box.max.x) / 2,
+            top.y + 0.3,
+            (box.min.z + box.max.z) / 2
+          );
+
+          scene.add(keyMesh);
+          console.log("Spawned key mesh!");
+        }
       }
     });
 
@@ -402,6 +432,7 @@ loader.load(
     } else {
       console.warn("start point not found, player remains at default spawn.");
     }
+    
   },
   undefined,
   (err) => {
@@ -784,6 +815,25 @@ function animate() {
 
   renderer.render(scene, camera);
 }
+
+window.addEventListener("pointerdown", (event) => {
+  if (keyCollected || !keyMesh) return;
+
+  // Normalize mouse pos
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObject(keyMesh);
+
+  if (hits.length > 0) {
+    // Collect key
+    keyCollected = true;
+    scene.remove(keyMesh);
+    showToast("🔑 Key collected!", "success", 1300);
+  }
+});
+
 
 animate();
 

@@ -9,7 +9,7 @@ import * as CANNON from "cannon-es";
 
   const style = document.createElement("style");
   style.textContent = `
-    #hud{position:fixed;inset:0;pointer-events:none;font-family:system-ui,sans-serif}
+    #hud{position:fixed;inset:0;pointer-events:none;z-index:9999;font-family:system-ui,sans-serif}
     #instructions{position:absolute;top:12px;left:12px;pointer-events:auto;background:rgba(0,0,0,.55);color:#fff;padding:10px 12px;border-radius:10px;backdrop-filter:blur(4px);font-size:14px;line-height:1.35;max-width:320px}
     #instructions kbd{background:rgba(255,255,255,.15);padding:2px 6px;border-radius:6px;font-weight:600}
     #toast{position:absolute;top:18px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);color:#fff;padding:10px 14px;border-radius:999px;opacity:0;transition:opacity 180ms ease,transform 180ms ease;pointer-events:none;font-weight:600}
@@ -18,6 +18,41 @@ import * as CANNON from "cannon-es";
     #toast.fail{background:rgba(239,68,68,.9)}
     #footerHint{position:absolute;bottom:10px;right:12px;font-size:12px;color:#fff;background:rgba(0,0,0,.4);padding:6px 8px;border-radius:8px}
     #toggleHelpBtn{position:absolute;top:12px;right:12px;pointer-events:auto;padding:6px 10px;border-radius:999px;border:none;font-weight:600;background:rgba(255,255,255,.8);cursor:pointer}
+    #inventory {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(0,0,0,.45);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+    }
+
+    #inv-title {
+      font-weight: 700;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    #inv-items {
+      display: flex;
+      gap: 6px;
+    }
+
+    .inv-item {
+      width: 28px;
+      height: 28px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      pointer-events: none;
+    }
   `;
   document.head.appendChild(style);
 
@@ -33,6 +68,10 @@ import * as CANNON from "cannon-es";
     </div>
     <div id="toast" aria-live="polite"></div>
     <div id="footerHint">Falling off resets you.</div>
+    <div id="inventory">
+      <div id="inv-title">Inventory</div>
+      <div id="inv-items"></div>
+    </div>
   `;
   document.body.appendChild(hud);
 })();
@@ -64,6 +103,13 @@ toggleHelpBtn?.addEventListener("click", () => {
   if (helpEl) helpEl.style.display = visible ? "none" : "block";
 });
 
+function addToInventory(icon = "❓") {
+  const slot = document.createElement("div");
+  slot.className = "inv-item";
+  slot.textContent = icon;
+  document.getElementById("inv-items").appendChild(slot);
+}
+
 // Basic Scene Setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xa8d0ff);
@@ -80,6 +126,14 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
+
+// Move the HUD to the end of the body so it sits on top of the canvas (some browsers/DOM orders overlay the canvas)
+try {
+  const hudEl = document.getElementById('hud');
+  if (hudEl) document.body.appendChild(hudEl);
+} catch (e) {
+  // ignore
+}
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -980,6 +1034,7 @@ window.addEventListener("pointerdown", (event) => {
     // Collect key
     keyCollected = true;
     scene.remove(keyMesh);
+    addToInventory("🔑");
     showToast("🔑 Key collected!", "success", 1300);
   }
 });

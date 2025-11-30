@@ -102,6 +102,14 @@ sunLight.castShadow = true;
 sunLight.shadow.bias = -0.0005;
 scene.add(sunLight);
 
+//Goal Platform
+let goalPlatform = null;
+let nextSceneLoaded = false;
+
+//Second map
+let currentMap = null;
+let currentStartPoint = null;
+
 // Physics World
 const world = new CANNON.World({
   gravity: new CANNON.Vec3(0, -15, 0),
@@ -367,6 +375,10 @@ loader.load(
 
         if (child.name && child.name.startsWith("col_")) child.visible = false;
 
+        if (child.name === "goal") {
+          goalPlatform = child;
+        }
+
         if (child.name === "key") {
           console.log("Found key platform:", child.name);
 
@@ -440,6 +452,75 @@ loader.load(
     showToast("Model load failed", "fail");
   }
 );
+
+function loadNextScene() {
+    nextSceneLoaded = true;
+
+    showToast("Loading next room...", "success", 1300);
+
+    // Remove previous map, but keep camera, player, lights
+    scene.children.forEach((obj) => {
+        if (
+            obj !== camera &&
+            obj !== playerMesh &&
+            obj !== sunLight &&
+            obj !== ambientLight &&
+            obj.type !== "HemisphereLight"
+        ) {
+            scene.remove(obj);
+        }
+    });
+
+    // Clear all physics bodies except player
+    world.bodies = world.bodies.filter((b) => b === playerBody);
+
+    // Load second map
+    loader.load(
+        `${import.meta.env.BASE_URL}models/121F2.glb`,
+        (gltf) => {
+            const map = gltf.scene;
+            currentMap = map;
+            scene.add(map);
+
+            showToast("Entered room 2!", "success", 1600);
+
+            currentStartPoint = null;
+
+            // Scan objects
+            map.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    child.castShadow = child.receiveShadow = true;
+
+                    // Build colliders for room 2
+                    const c = createHiddenPathCollider(child);
+
+                    // Look for the start in 121F2.glb
+                    if (child.name.toLowerCase() === "start") {
+                        currentStartPoint = child;
+                    }
+                }
+            });
+
+            // If start exists, move the player there
+            if (currentStartPoint) {
+                const wp = new THREE.Vector3();
+                currentStartPoint.getWorldPosition(wp);
+
+                playerBody.position.set(wp.x, wp.y + 2, wp.z);
+                playerBody.velocity.set(0, 0, 0);
+                playerMesh.position.copy(playerBody.position);
+
+                showToast("Spawned in room 2!", "info", 1000);
+            } else {
+                console.warn("⚠ No 'start' found in 121F2.glb");
+            }
+        },
+        undefined,
+        () => showToast("Failed to load room 2", "fail")
+    );
+}
+
+
 
 // Player Sphere
 const radius = 0.5;
@@ -812,6 +893,36 @@ function animate() {
   }
 
   checkPuzzleSolved();
+
+  if (goalPlatform && !nextSceneLoaded) {
+    const playerPos = playerBody.position;
+
+    const box = new THREE.Box3().setFromObject(goalPlatform);
+    const center = box.getCenter(new THREE.Vector3());
+
+    const dist = center.distanceTo(playerMesh.position);
+
+    // adjust threshold based on size of platform
+    if (dist < 2.0) {
+        nextSceneLoaded = true;
+        showToast("Loading next scene...", "success", 1500);
+        loadNextScene();
+    }
+  }
+
+  // Respawn player when falling, works for room 1 & room 2
+  if (currentStartPoint) {
+      const now = performance.now();
+      if (now - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
+          const wp = new THREE.Vector3();
+          currentStartPoint.getWorldPosition(wp);
+          playerBody.position.set(wp.x, wp.y + 2, wp.z);
+          playerBody.velocity.set(0, 0, 0);
+          playerMesh.position.copy(playerBody.position);
+          lastResetTime = now;
+          showToast("Respawn!", "fail");
+      }
+  }
 
   renderer.render(scene, camera);
 }

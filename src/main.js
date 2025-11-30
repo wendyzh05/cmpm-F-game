@@ -458,21 +458,30 @@ function loadNextScene() {
 
     showToast("Loading next room...", "success", 1300);
 
+    // Store references to objects we want to keep
+    const keepObjects = [camera, playerMesh, sunLight, ambientLight];
+    
     // Remove previous map, but keep camera, player, lights
+    const objectsToRemove = [];
     scene.children.forEach((obj) => {
-        if (
-            obj !== camera &&
-            obj !== playerMesh &&
-            obj !== sunLight &&
-            obj !== ambientLight &&
-            obj.type !== "HemisphereLight"
-        ) {
-            scene.remove(obj);
+        if (!keepObjects.includes(obj) && obj.type !== "HemisphereLight") {
+            objectsToRemove.push(obj);
         }
     });
+    objectsToRemove.forEach(obj => scene.remove(obj));
 
     // Clear all physics bodies except player
-    world.bodies = world.bodies.filter((b) => b === playerBody);
+    world.bodies.forEach((body) => {
+        if (body !== playerBody) {
+            world.removeBody(body);
+        }
+    });
+    
+    // Reset puzzle references since we're leaving map 1
+    puzzleBody = null;
+    puzzleMesh = null;
+    cubeStart = null;
+    cubeEnd = null;
 
     // Load second map
     loader.load(
@@ -480,6 +489,7 @@ function loadNextScene() {
         (gltf) => {
             const map = gltf.scene;
             currentMap = map;
+            map.scale.set(0.5, 0.5, 0.5);
             scene.add(map);
 
             showToast("Entered room 2!", "success", 1600);
@@ -495,7 +505,7 @@ function loadNextScene() {
                     const c = createHiddenPathCollider(child);
 
                     // Look for the start in 121F2.glb
-                    if (child.name.toLowerCase() === "start") {
+                    if (child.name.toLowerCase() === "start2") {
                         currentStartPoint = child;
                     }
                 }
@@ -513,6 +523,14 @@ function loadNextScene() {
                 showToast("Spawned in room 2!", "info", 1000);
             } else {
                 console.warn("⚠ No 'start' found in 121F2.glb");
+            }
+
+            try {
+                const box2 = new THREE.Box3().setFromObject(map);
+                if (!box2.isEmpty()) mapMinY = box2.min.y;
+                console.log("Room2 mapMinY =", mapMinY);
+            } catch (e) {
+                console.warn("Could not compute mapMinY for room 2");
             }
         },
         undefined,
@@ -821,6 +839,24 @@ function checkPuzzleSolved() {
   }
 }
 
+function resetPlayerToStart2() {
+    if (!currentStartPoint) return;
+
+    const wp = new THREE.Vector3();
+    currentStartPoint.getWorldPosition(wp);
+
+    playerBody.position.set(wp.x, wp.y + 2, wp.z);
+    playerBody.velocity.set(0, 0, 0);
+    playerBody.angularVelocity.set(0, 0, 0);
+
+    if (typeof playerBody.wakeUp === "function") playerBody.wakeUp();
+    playerMesh.position.copy(playerBody.position);
+
+    lastResetTime = performance.now();
+    showToast("Respawned in Room 2!", "fail");
+}
+
+
 // Animation Loop
 const clock = new THREE.Clock();
 const camOffset = new THREE.Vector3(10, 5, 0); // rotated 90° to the right of the player
@@ -880,17 +916,25 @@ function animate() {
   const now = performance.now();
   const resetCooldown = 500; // ms
   if (now - lastResetTime > resetCooldown) {
-    const fallThreshold = Math.max(
-      typeof mapMinY === "number" ? mapMinY - 5 : -20,
-      -20
-    );
+    const fallThreshold = mapMinY - 5;
+
     if (playerBody.position.y < fallThreshold) {
-      resetPlayerToStart();
+
+        // If in room 2 → use start2
+        if (nextSceneLoaded && currentStartPoint) {
+            resetPlayerToStart2();
+        }
+        else {
+            resetPlayerToStart();
+        }
     }
-    if (puzzleBody && puzzleBody.position.y < fallThreshold) {
-      resetPuzzleToStart();
+
+    // Only reset the puzzle in room 1
+    if (!nextSceneLoaded && puzzleBody && puzzleBody.position.y < fallThreshold) {
+        resetPuzzleToStart();
     }
-  }
+}
+
 
   checkPuzzleSolved();
 
@@ -912,16 +956,11 @@ function animate() {
 
   // Respawn player when falling, works for room 1 & room 2
   if (currentStartPoint) {
-      const now = performance.now();
-      if (now - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
-          const wp = new THREE.Vector3();
-          currentStartPoint.getWorldPosition(wp);
-          playerBody.position.set(wp.x, wp.y + 2, wp.z);
-          playerBody.velocity.set(0, 0, 0);
-          playerMesh.position.copy(playerBody.position);
-          lastResetTime = now;
-          showToast("Respawn!", "fail");
-      }
+    const now = performance.now();
+
+    if (now - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
+        resetPlayerToStart2();
+    }
   }
 
   renderer.render(scene, camera);

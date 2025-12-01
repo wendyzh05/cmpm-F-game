@@ -60,12 +60,7 @@ import * as CANNON from "cannon-es";
   hud.id = "hud";
   hud.innerHTML = `
     <button id="toggleHelpBtn" aria-label="Toggle instructions">?</button>
-    <div id="instructions" role="note">
-      <div style="font-weight:700;margin-bottom:6px;">Controls</div>
-      <div><kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> move the sphere</div>
-      <div><kbd>Space</kbd> to jump</div>
-      <div style="margin-top:6px">Push the blue cube to its goal to reveal the end platforms.</div>
-    </div>
+    <div id="instructions" role="note"></div>
     <div id="toast" aria-live="polite"></div>
     <div id="footerHint">Falling off resets you.</div>
     <div id="inventory">
@@ -79,6 +74,7 @@ import * as CANNON from "cannon-es";
 const toastEl = /** @type {HTMLDivElement} */ (document.getElementById("toast"));
 const helpEl = /** @type {HTMLDivElement} */ (document.getElementById("instructions"));
 const toggleHelpBtn = /** @type {HTMLButtonElement} */ (document.getElementById("toggleHelpBtn"));
+const footerHintEl = /** @type {HTMLDivElement} */ (document.getElementById("footerHint"));
 let toastTimer = /** @type {number|null} */ (null);
 
 /**
@@ -91,8 +87,6 @@ function showToast(msg, kind = "info", ms = 1600) {
   toastEl.classList.remove("success", "fail", "show");
   if (kind === "success") toastEl.classList.add("success");
   if (kind === "fail") toastEl.classList.add("fail");
-  // force reflow to retrigger transition
-  // eslint-disable-next-line no-unused-expressions
   toastEl.offsetHeight;
   toastEl.classList.add("show");
   if (toastTimer) window.clearTimeout(toastTimer);
@@ -110,7 +104,40 @@ function addToInventory(icon = "❓") {
   document.getElementById("inv-items").appendChild(slot);
 }
 
-// Basic Scene Setup
+// HUD text for each room
+function setHUDRoom1() {
+  if (helpEl) {
+    helpEl.innerHTML = `
+      <div style="font-weight:700;margin-bottom:6px;">Room 1 – Crate & Key</div>
+      <div><kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> move the sphere</div>
+      <div><kbd>Space</kbd> to jump</div>
+      <div style="margin-top:6px">Push the blue cube to its goal to reveal the end platforms.</div>
+      <div style="margin-top:4px">Click the gold key to collect it for Room 2.</div>
+    `;
+  }
+  if (footerHintEl) {
+    footerHintEl.textContent = "Falling off resets you to Room 1 start.";
+  }
+}
+
+function setHUDRoom2() {
+  if (helpEl) {
+    helpEl.innerHTML = `
+      <div style="font-weight:700;margin-bottom:6px;">Room 2 – Power Circuit</div>
+      <div><kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> move the sphere</div>
+      <div><kbd>Space</kbd> to jump</div>
+      <div style="margin-top:6px">Use your key on the power box (click it).</div>
+      <div style="margin-top:4px">Then activate the plate (click it). When both are active, the bridge appears.</div>
+    `;
+  }
+  if (footerHintEl) {
+    footerHintEl.textContent = "Falling off respawns you in Room 2.";
+  }
+}
+
+setHUDRoom1();
+
+// basic Scene Setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xa8d0ff);
 
@@ -127,9 +154,8 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// Move the HUD to the end of the body so it sits on top of the canvas (some browsers/DOM orders overlay the canvas)
 try {
-  const hudEl = document.getElementById('hud');
+  const hudEl = document.getElementById("hud");
   if (hudEl) document.body.appendChild(hudEl);
 } catch (e) {
   // ignore
@@ -139,14 +165,27 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.enabled = false;
 
-//Click handling
+//click handling
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let keyMesh = null;
 let keyCollected = false;
 
+// room 2 power/plate/bridge meshes + flags
+/** @type {THREE.Mesh | null} */
+let powerboxInactive = null;
+/** @type {THREE.Mesh | null} */
+let powerboxActive = null;
+/** @type {THREE.Mesh | null} */
+let plateInactive = null;
+/** @type {THREE.Mesh | null} */
+let plateActive = null;
+/** @type {THREE.Mesh | null} */
+let bridgeMesh = null;
+let powerActivated = false;
+let plateActivated = false;
 
-// Lights
+// lights
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
 scene.add(ambientLight);
 
@@ -156,15 +195,15 @@ sunLight.castShadow = true;
 sunLight.shadow.bias = -0.0005;
 scene.add(sunLight);
 
-//Goal Platform
+//goal Platform
 let goalPlatform = null;
 let nextSceneLoaded = false;
 
-//Second map
+//second map
 let currentMap = null;
 let currentStartPoint = null;
 
-// Physics World
+// physics World
 const world = new CANNON.World({
   gravity: new CANNON.Vec3(0, -15, 0),
 });
@@ -175,7 +214,7 @@ world.solver.iterations = 20;
 // @ts-ignore
 world.solver.tolerance = 1e-3;
 
-// Physics Materials
+// physics Materials
 const physicsMaterial = new CANNON.Material("physics");
 const contactMaterial = new CANNON.ContactMaterial(
   physicsMaterial,
@@ -202,13 +241,13 @@ const boxGroundContact = new CANNON.ContactMaterial(
   boxPhysicsMaterial,
   physicsMaterial,
   {
-    friction: 0.4,
+    friction: 0.9,
     restitution: 0.0,
   }
 );
 world.addContactMaterial(boxGroundContact);
 
-// Debug visualization
+// debug visualization
 /**
  * @type {{ mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial, THREE.Object3DEventMap>; body: any; }[]}
  */
@@ -221,7 +260,7 @@ let lastResetTime = 0;
  * @param {CANNON.Body} body
  */
 function addDebugVisualization(body) {
-  // Debug visualization disabled in production — no-op to avoid green wireframes
+  // debug visualization disabled in production — no-op to avoid green wireframes
   return;
 }
 
@@ -358,7 +397,7 @@ function createHiddenPathCollider(mesh) {
 // @ts-ignore
 let platformBodies = [];
 
-// Load Blender Map
+// load blender Map
 const loader = new GLTFLoader();
 /**
  * @type {THREE.Object3D<THREE.Object3DEventMap> | null}
@@ -424,7 +463,7 @@ loader.load(
           child.name === "end4"
         ) {
           endMeshes.push(child);
-          child.visible = false; // hide until puzzle solved
+          child.visible = false; 
         }
 
         if (child.name && child.name.startsWith("col_")) child.visible = false;
@@ -508,93 +547,133 @@ loader.load(
 );
 
 function loadNextScene() {
-    nextSceneLoaded = true;
+  nextSceneLoaded = true;
 
-    showToast("Loading next room...", "success", 1300);
+  showToast("Loading next room...", "success", 1300);
 
-    // Store references to objects we want to keep
-    const keepObjects = [camera, playerMesh, sunLight, ambientLight];
-    
-    // Remove previous map, but keep camera, player, lights
-    const objectsToRemove = [];
-    scene.children.forEach((obj) => {
-        if (!keepObjects.includes(obj) && obj.type !== "HemisphereLight") {
-            objectsToRemove.push(obj);
+  const keepObjects = [camera, playerMesh, sunLight, ambientLight];
+  
+  const objectsToRemove = [];
+  scene.children.forEach((obj) => {
+    if (!keepObjects.includes(obj) && obj.type !== "HemisphereLight") {
+      objectsToRemove.push(obj);
+    }
+  });
+  objectsToRemove.forEach(obj => scene.remove(obj));
+
+  world.bodies.forEach((body) => {
+    if (body !== playerBody) {
+      world.removeBody(body);
+    }
+  });
+  
+  // reset puzzle references 
+  puzzleBody = null;
+  puzzleMesh = null;
+  cubeStart = null;
+  cubeEnd = null;
+  goalPlatform = null;
+
+  // reset power/plate flags/meshes
+  powerboxInactive = null;
+  powerboxActive = null;
+  plateInactive = null;
+  plateActive = null;
+  bridgeMesh = null;
+  powerActivated = false;
+  plateActivated = false;
+
+  // load second map
+  loader.load(
+    `${import.meta.env.BASE_URL}models/121F2.glb`,
+    (gltf) => {
+      const map = gltf.scene;
+      currentMap = map;
+      map.scale.set(0.5, 0.5, 0.5);
+      scene.add(map);
+
+      showToast("Entered room 2!", "success", 1600);
+
+      currentStartPoint = null;
+
+      map.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.castShadow = child.receiveShadow = true;
+
+          // Build colliders for room 2
+          createHiddenPathCollider(child);
+
+          const name = (child.name || "").toLowerCase();
+
+          if (name === "start2") {
+            currentStartPoint = child;
+          }
+
+          if (name === "powerbox_inactive") {
+            powerboxInactive = child;
+          }
+          if (name === "powerbox_active") {
+            powerboxActive = child;
+          }
+          if (name === "plate_inactive") {
+            plateInactive = child;
+          }
+          if (name === "plate_active") {
+            plateActive = child;
+          }
+          if (name === "bridge") {
+            bridgeMesh = child;
+          }
         }
-    });
-    objectsToRemove.forEach(obj => scene.remove(obj));
+      });
 
-    // Clear all physics bodies except player
-    world.bodies.forEach((body) => {
-        if (body !== playerBody) {
-            world.removeBody(body);
-        }
-    });
-    
-    // Reset puzzle references since we're leaving map 1
-    puzzleBody = null;
-    puzzleMesh = null;
-    cubeStart = null;
-    cubeEnd = null;
+      // initial visibility for room 2 props
+      if (powerboxActive) powerboxActive.visible = false;
+      if (powerboxInactive) powerboxInactive.visible = true;
+      if (plateActive) plateActive.visible = false;
+      if (plateInactive) plateInactive.visible = true;
+      if (bridgeMesh) bridgeMesh.visible = false;
+      powerActivated = false;
+      plateActivated = false;
 
-    // Load second map
-    loader.load(
-        `${import.meta.env.BASE_URL}models/121F2.glb`,
-        (gltf) => {
-            const map = gltf.scene;
-            currentMap = map;
-            map.scale.set(0.5, 0.5, 0.5);
-            scene.add(map);
+      if (currentStartPoint) {
+        const wp = new THREE.Vector3();
+        currentStartPoint.getWorldPosition(wp);
 
-            showToast("Entered room 2!", "success", 1600);
+        playerBody.position.set(wp.x, wp.y + 2, wp.z);
+        playerBody.velocity.set(0, 0, 0);
+        playerMesh.position.copy(playerBody.position);
 
-            currentStartPoint = null;
+        showToast("Spawned in room 2!", "info", 1000);
+      } else {
+        console.warn("⚠ No 'start2' found in 121F2.glb");
+      }
 
-            // Scan objects
-            map.traverse((child) => {
-                if (child instanceof THREE.Mesh) {
-                    child.castShadow = child.receiveShadow = true;
+      try {
+        const box2 = new THREE.Box3().setFromObject(map);
+        if (!box2.isEmpty()) mapMinY = box2.min.y;
+        console.log("Room2 mapMinY =", mapMinY);
+      } catch (e) {
+        console.warn("Could not compute mapMinY for room 2");
+      }
 
-                    // Build colliders for room 2
-                    const c = createHiddenPathCollider(child);
-
-                    // Look for the start in 121F2.glb
-                    if (child.name.toLowerCase() === "start2") {
-                        currentStartPoint = child;
-                    }
-                }
-            });
-
-            // If start exists, move the player there
-            if (currentStartPoint) {
-                const wp = new THREE.Vector3();
-                currentStartPoint.getWorldPosition(wp);
-
-                playerBody.position.set(wp.x, wp.y + 2, wp.z);
-                playerBody.velocity.set(0, 0, 0);
-                playerMesh.position.copy(playerBody.position);
-
-                showToast("Spawned in room 2!", "info", 1000);
-            } else {
-                console.warn("⚠ No 'start' found in 121F2.glb");
-            }
-
-            try {
-                const box2 = new THREE.Box3().setFromObject(map);
-                if (!box2.isEmpty()) mapMinY = box2.min.y;
-                console.log("Room2 mapMinY =", mapMinY);
-            } catch (e) {
-                console.warn("Could not compute mapMinY for room 2");
-            }
-        },
-        undefined,
-        () => showToast("Failed to load room 2", "fail")
-    );
+      // swap HUD to room2 text
+      setHUDRoom2();
+    },
+    undefined,
+    () => showToast("Failed to load room 2", "fail")
+  );
 }
 
+// helper: reveal bridge when both active
+function tryRevealBridge() {
+  if (powerActivated && plateActivated && bridgeMesh && !bridgeMesh.visible) {
+    bridgeMesh.visible = true;
+    showToast("A bridge appears…", "success", 1800);
+  }
+}
 
-
-// Player Sphere
+// player Sphere
 const radius = 0.5;
 const playerShape = new CANNON.Sphere(radius);
 const playerBody = new CANNON.Body({
@@ -618,16 +697,39 @@ scene.add(playerMesh);
 // Movement
 const keys = {};
 window.addEventListener("keydown", (e) => {
+  const k = e.key.toLowerCase();
   // @ts-ignore
-  keys[e.key.toLowerCase()] = true;
+  keys[k] = true;
+
   if (e.code === "Space") {
     tryJump();
   }
+
+  // debug room 1 skip
+  if (k === "n" && !nextSceneLoaded) {
+    // mark key as collected
+    if (!keyCollected) {
+      keyCollected = true;
+      if (keyMesh) {
+        scene.remove(keyMesh);
+        keyMesh = null;
+      }
+      addToInventory("🔑");
+      showToast("🔑 Key auto-collected (debug).", "info", 900);
+    }
+
+    // go to room 2, debug only
+    nextSceneLoaded = true;
+    showToast("Skipping to Room 2…", "success", 1200);
+    loadNextScene();
+  }
 });
+
 window.addEventListener("keyup", (e) => {
   // @ts-ignore
   keys[e.key.toLowerCase()] = false;
 });
+
 
 playerBody.addEventListener("collide", (/** @type {{ contact: any; }} */ e) => {
   const contact = e.contact;
@@ -726,7 +828,7 @@ function handleMovement() {
     -maxSpeed,
     Math.min(maxSpeed, playerBody.velocity.z)
   );
-// Handle pushing the puzzle box
+  // handle pushing the puzzle box
   if (puzzleBody) {
     const px = playerBody.position.x;
     const pz = playerBody.position.z;
@@ -757,7 +859,7 @@ function handleMovement() {
         );
         const speedFactor = Math.max(0.35, Math.min(1.0, playerSpeed / 4));
 
-        const basePush = 20; // tuned
+        const basePush = 10; // softer
         const pushForce = basePush * speedFactor;
 
         const contactPoint = new CANNON.Vec3(
@@ -801,15 +903,17 @@ function spawnPuzzleBoxAt(targetMesh) {
   const shape = new CANNON.Box(half);
 
   puzzleBody = new CANNON.Body({
-    mass: 1,
+    mass: 0.025, 
     shape: shape,
     material: boxPhysicsMaterial,
     position: new CANNON.Vec3(center.x, platformTopY + half.y + 1.5, center.z),
   });
 
-  puzzleBody.linearDamping = 0.2;
-  puzzleBody.angularDamping = 0.9;
+  puzzleBody.linearDamping = 0.4;
+  puzzleBody.angularDamping = 1.0;
   puzzleBody.collisionResponse = true;
+  puzzleBody.fixedRotation = true;
+  puzzleBody.updateMassProperties();
 
   world.addBody(puzzleBody);
 
@@ -817,7 +921,7 @@ function spawnPuzzleBoxAt(targetMesh) {
   puzzleMesh.quaternion.copy(puzzleBody.quaternion);
 }
 
-// Reset helpers
+// reset helpers
 function resetPlayerToStart() {
   if (!startPoint) {
     console.warn("resetPlayerToStart: startPoint not found, using fallback spawn");
@@ -874,7 +978,7 @@ function resetPuzzleToStart() {
   showToast("Cube reset", "fail", 900);
 }
 
-// Check if puzzle is solved
+// check if puzzle is solved
 function checkPuzzleSolved() {
   if (!puzzleBody || !cubeEnd) return;
 
@@ -911,7 +1015,7 @@ function resetPlayerToStart2() {
 }
 
 
-// Animation Loop
+// animation Loop
 const clock = new THREE.Clock();
 const camOffset = new THREE.Vector3(10, 5, 0); // rotated 90° to the right of the player
 const followPos = new THREE.Vector3();
@@ -966,7 +1070,7 @@ function animate() {
     puzzleMesh.quaternion.copy(puzzleBody.quaternion);
   }
 
-  // Respawn logic: if player or puzzle falls far below the map, reset them to their starts
+  // respawn logic: if player or puzzle falls far below the map, reset them to their starts
   const now = performance.now();
   const resetCooldown = 500; // ms
   if (now - lastResetTime > resetCooldown) {
@@ -974,7 +1078,6 @@ function animate() {
 
     if (playerBody.position.y < fallThreshold) {
 
-        // If in room 2 → use start2
         if (nextSceneLoaded && currentStartPoint) {
             resetPlayerToStart2();
         }
@@ -983,24 +1086,19 @@ function animate() {
         }
     }
 
-    // Only reset the puzzle in room 1
     if (!nextSceneLoaded && puzzleBody && puzzleBody.position.y < fallThreshold) {
         resetPuzzleToStart();
     }
-}
-
+  }
 
   checkPuzzleSolved();
 
   if (goalPlatform && !nextSceneLoaded) {
-    const playerPos = playerBody.position;
-
     const box = new THREE.Box3().setFromObject(goalPlatform);
     const center = box.getCenter(new THREE.Vector3());
 
     const dist = center.distanceTo(playerMesh.position);
 
-    // adjust threshold based on size of platform
     if (dist < 2.0) {
         nextSceneLoaded = true;
         showToast("Loading next scene...", "success", 1500);
@@ -1008,11 +1106,11 @@ function animate() {
     }
   }
 
-  // Respawn player when falling, works for room 1 & room 2
+  // respawn player when falling
   if (currentStartPoint) {
-    const now = performance.now();
+    const now2 = performance.now();
 
-    if (now - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
+    if (now2 - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
         resetPlayerToStart2();
     }
   }
@@ -1020,31 +1118,71 @@ function animate() {
   renderer.render(scene, camera);
 }
 
+// click handling
 window.addEventListener("pointerdown", (event) => {
-  if (keyCollected || !keyMesh) return;
-
-  // Normalize mouse pos
+  
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
   raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObject(keyMesh);
 
-  if (hits.length > 0) {
-    // Collect key
-    keyCollected = true;
-    scene.remove(keyMesh);
-    addToInventory("🔑");
-    showToast("🔑 Key collected!", "success", 1300);
+  // key collection
+  if (!keyCollected && keyMesh) {
+    const hits = raycaster.intersectObject(keyMesh);
+    if (hits.length > 0) {
+      keyCollected = true;
+      scene.remove(keyMesh);
+      addToInventory("🔑");
+      showToast("🔑 Key collected!", "success", 1300);
+      return;
+    }
+  }
+
+  // room 2 inetractions
+  if (nextSceneLoaded) {
+   
+    if (powerboxInactive && !powerActivated) {
+      const hits = raycaster.intersectObject(powerboxInactive, true);
+      if (hits.length > 0) {
+        if (!keyCollected) {
+          showToast("You need a key to activate this.", "fail", 1400);
+        } else {
+          powerActivated = true;
+          powerboxInactive.visible = false;
+          if (powerboxActive) powerboxActive.visible = true;
+          showToast("⚡ Power box activated!", "success", 1600);
+          tryRevealBridge();
+        }
+        return;
+      }
+    }
+
+    // plate inactive click
+    if (plateInactive && !plateActivated) {
+      const hits = raycaster.intersectObject(plateInactive, true);
+      if (hits.length > 0) {
+        if (!powerActivated) {
+          showToast("Activate the power box first.", "fail", 1400);
+        } else {
+          plateActivated = true;
+          plateInactive.visible = false;
+          if (plateActive) plateActive.visible = true;
+          showToast("Plate activated.", "success", 1400);
+          tryRevealBridge();
+        }
+        return;
+      }
+    }
   }
 });
 
-
 animate();
 
-// Resize handling
+// resize handling
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
-  //camera.updateProjectionMatrix();
+  camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+
+

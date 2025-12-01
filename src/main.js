@@ -50,6 +50,30 @@ import * as CANNON from "cannon-es";
       pointer-events: none;
       outline: 2px solid rgba(255,255,255,0.4);
     }
+
+    #winBanner{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      pointer-events:none;
+      opacity:0;
+      transition:opacity 250ms ease;
+      font-size:32px;
+      font-weight:800;
+      color:#fff;
+      text-shadow:0 2px 8px rgba(0,0,0,.7);
+    }
+    #winBanner.show{
+      opacity:1;
+    }
+    #winBannerInner{
+      background:rgba(17,24,39,.9);
+      padding:24px 32px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.4);
+    }
   `;
   document.head.appendChild(style);
 
@@ -64,6 +88,9 @@ import * as CANNON from "cannon-es";
       <div id="inv-title">Inventory</div>
       <div id="inv-items"></div>
     </div>
+    <div id="winBanner">
+      <div id="winBannerInner">Level 2 complete! 🎉</div>
+    </div>
   `;
   document.body.appendChild(hud);
 })();
@@ -72,7 +99,9 @@ const toastEl = /** @type {HTMLDivElement} */ (document.getElementById("toast"))
 const helpEl = /** @type {HTMLDivElement} */ (document.getElementById("instructions"));
 const toggleHelpBtn = /** @type {HTMLButtonElement} */ (document.getElementById("toggleHelpBtn"));
 const footerHintEl = /** @type {HTMLDivElement} */ (document.getElementById("footerHint"));
+const winBannerEl = /** @type {HTMLDivElement} */ (document.getElementById("winBanner"));
 let toastTimer = /** @type {number|null} */ (null);
+let level2Won = false;
 
 /**
  * succes and fail
@@ -93,6 +122,11 @@ toggleHelpBtn?.addEventListener("click", () => {
   const visible = helpEl && helpEl.style.display !== "none";
   if (helpEl) helpEl.style.display = visible ? "none" : "block";
 });
+
+function showWinBanner() {
+  if (!winBannerEl) return;
+  winBannerEl.classList.add("show");
+}
 
 const inventoryUI = document.getElementById("inv-items");
 let keyCollected = false;
@@ -126,7 +160,7 @@ function updateInventory() {
     const keyIcon = document.createElement("div");
     keyIcon.className = "inv-icon";
     keyIcon.textContent = "🔑";
-    keyIcon.setAttribute('role', 'img');
+    keyIcon.setAttribute("role", "img");
     keyIcon.style.display = "flex";
     keyIcon.style.alignItems = "center";
     keyIcon.style.justifyContent = "center";
@@ -212,6 +246,8 @@ let plateInactive = null;
 let plateActive = null;
 /** @type {THREE.Mesh | null} */
 let bridgeMesh = null;
+/** @type {THREE.Mesh | null} */
+let endgoal = null;
 let powerActivated = false;
 let plateActivated = false;
 
@@ -262,7 +298,7 @@ const playerBoxContact = new CANNON.ContactMaterial(
   playerPhysicsMaterial,
   boxPhysicsMaterial,
   {
-    friction: 0.0, 
+    friction: 0.0,
     restitution: 0.0,
   }
 );
@@ -493,7 +529,7 @@ loader.load(
           child.name === "end4"
         ) {
           endMeshes.push(child);
-          child.visible = false; 
+          child.visible = false;
         }
 
         if (child.name && child.name.startsWith("col_")) child.visible = false;
@@ -567,7 +603,6 @@ loader.load(
     } else {
       console.warn("start point not found, player remains at default spawn.");
     }
-    
   },
   undefined,
   (err) => {
@@ -576,28 +611,38 @@ loader.load(
   }
 );
 
+// global restart helper
+function restartGame() {
+  showToast("Restarting...", "info", 800);
+
+  // small delay so the toast can show before reload
+  setTimeout(() => {
+    window.location.reload();
+  }, 300);
+}
+
 function loadNextScene() {
   nextSceneLoaded = true;
 
   showToast("Loading next room...", "success", 1300);
 
   const keepObjects = [camera, playerMesh, sunLight, ambientLight];
-  
+
   const objectsToRemove = [];
   scene.children.forEach((obj) => {
     if (!keepObjects.includes(obj) && obj.type !== "HemisphereLight") {
       objectsToRemove.push(obj);
     }
   });
-  objectsToRemove.forEach(obj => scene.remove(obj));
+  objectsToRemove.forEach((obj) => scene.remove(obj));
 
   world.bodies.forEach((body) => {
     if (body !== playerBody) {
       world.removeBody(body);
     }
   });
-  
-  // reset puzzle references 
+
+  // reset puzzle references
   puzzleBody = null;
   puzzleMesh = null;
   cubeStart = null;
@@ -610,6 +655,7 @@ function loadNextScene() {
   plateInactive = null;
   plateActive = null;
   bridgeMesh = null;
+  endgoal = null;
   powerActivated = false;
   plateActivated = false;
 
@@ -654,6 +700,9 @@ function loadNextScene() {
           if (name === "bridge") {
             bridgeMesh = child;
           }
+          if (name === "end") {
+            endgoal = child;
+          }
         }
       });
 
@@ -665,6 +714,8 @@ function loadNextScene() {
       if (bridgeMesh) bridgeMesh.visible = false;
       powerActivated = false;
       plateActivated = false;
+      level2Won = false;
+      if (winBannerEl) winBannerEl.classList.remove("show");
 
       if (currentStartPoint) {
         const wp = new THREE.Vector3();
@@ -735,6 +786,12 @@ window.addEventListener("keydown", (e) => {
     tryJump();
   }
 
+  // global restart: press R to go back to level 1 with fresh state
+  if (k === "r") {
+    restartGame();
+    return;
+  }
+
   // debug room 1 skip
   if (k === "n" && !nextSceneLoaded) {
     // mark key as collected
@@ -744,6 +801,7 @@ window.addEventListener("keydown", (e) => {
         scene.remove(keyMesh);
         keyMesh = null;
       }
+      updateInventory();
       showToast("🔑 Key auto-collected (debug).", "info", 900);
     }
 
@@ -759,19 +817,21 @@ window.addEventListener("keyup", (e) => {
   keys[e.key.toLowerCase()] = false;
 });
 
+playerBody.addEventListener(
+  "collide",
+  (/** @type {{ contact: any; }} */ e) => {
+    const contact = e.contact;
+    const normal = contact.ni.clone();
 
-playerBody.addEventListener("collide", (/** @type {{ contact: any; }} */ e) => {
-  const contact = e.contact;
-  const normal = contact.ni.clone();
+    if (contact.bi === playerBody) {
+      normal.negate();
+    }
 
-  if (contact.bi === playerBody) {
-    normal.negate();
+    if (normal.y > 0.5) {
+      // grounded
+    }
   }
-
-  if (normal.y > 0.5) {
-    // grounded
-  }
-});
+);
 
 function tryJump() {
   const onGround = Math.abs(playerBody.velocity.y) < 0.2;
@@ -898,7 +958,7 @@ function handleMovement() {
         );
 
         const push = new CANNON.Vec3(
-          moveDir.x * pushForce,
+         moveDir.x * pushForce,
           0,
           moveDir.z * pushForce
         );
@@ -932,7 +992,7 @@ function spawnPuzzleBoxAt(targetMesh) {
   const shape = new CANNON.Box(half);
 
   puzzleBody = new CANNON.Body({
-    mass: 0.025, 
+    mass: 0.025,
     shape: shape,
     material: boxPhysicsMaterial,
     position: new CANNON.Vec3(center.x, platformTopY + half.y + 1.5, center.z),
@@ -953,7 +1013,9 @@ function spawnPuzzleBoxAt(targetMesh) {
 // reset helpers
 function resetPlayerToStart() {
   if (!startPoint) {
-    console.warn("resetPlayerToStart: startPoint not found, using fallback spawn");
+    console.warn(
+      "resetPlayerToStart: startPoint not found, using fallback spawn"
+    );
     const fallbackX = 0;
     const fallbackY = 10;
     const fallbackZ = 0;
@@ -1027,22 +1089,21 @@ function checkPuzzleSolved() {
 }
 
 function resetPlayerToStart2() {
-    if (!currentStartPoint) return;
+  if (!currentStartPoint) return;
 
-    const wp = new THREE.Vector3();
-    currentStartPoint.getWorldPosition(wp);
+  const wp = new THREE.Vector3();
+  currentStartPoint.getWorldPosition(wp);
 
-    playerBody.position.set(wp.x, wp.y + 2, wp.z);
-    playerBody.velocity.set(0, 0, 0);
-    playerBody.angularVelocity.set(0, 0, 0);
+  playerBody.position.set(wp.x, wp.y + 2, wp.z);
+  playerBody.velocity.set(0, 0, 0);
+  playerBody.angularVelocity.set(0, 0, 0);
 
-    if (typeof playerBody.wakeUp === "function") playerBody.wakeUp();
-    playerMesh.position.copy(playerBody.position);
+  if (typeof playerBody.wakeUp === "function") playerBody.wakeUp();
+  playerMesh.position.copy(playerBody.position);
 
-    lastResetTime = performance.now();
-    showToast("Respawned in Room 2!", "fail");
+  lastResetTime = performance.now();
+  showToast("Respawned in Room 2!", "fail");
 }
-
 
 // animation Loop
 const clock = new THREE.Clock();
@@ -1106,17 +1167,15 @@ function animate() {
     const fallThreshold = mapMinY - 5;
 
     if (playerBody.position.y < fallThreshold) {
-
-        if (nextSceneLoaded && currentStartPoint) {
-            resetPlayerToStart2();
-        }
-        else {
-            resetPlayerToStart();
-        }
+      if (nextSceneLoaded && currentStartPoint) {
+        resetPlayerToStart2();
+      } else {
+        resetPlayerToStart();
+      }
     }
 
     if (!nextSceneLoaded && puzzleBody && puzzleBody.position.y < fallThreshold) {
-        resetPuzzleToStart();
+      resetPuzzleToStart();
     }
   }
 
@@ -1129,9 +1188,9 @@ function animate() {
     const dist = center.distanceTo(playerMesh.position);
 
     if (dist < 2.0) {
-        nextSceneLoaded = true;
-        showToast("Loading next scene...", "success", 1500);
-        loadNextScene();
+      nextSceneLoaded = true;
+      showToast("Loading next scene...", "success", 1500);
+      loadNextScene();
     }
   }
 
@@ -1140,7 +1199,20 @@ function animate() {
     const now2 = performance.now();
 
     if (now2 - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
-        resetPlayerToStart2();
+      resetPlayerToStart2();
+    }
+  }
+
+  // win detection: Level 2 complete when reaching "end" mesh
+  if (nextSceneLoaded && endgoal && !level2Won) {
+    const endBox = new THREE.Box3().setFromObject(endgoal);
+    const endCenter = endBox.getCenter(new THREE.Vector3());
+    const distEnd = endCenter.distanceTo(playerMesh.position);
+
+    if (distEnd < 1.5) {
+      level2Won = true;
+      showToast("🎉 You cleared Level 2! Press R to restart the game.", "success", 2500);
+      showWinBanner();
     }
   }
 
@@ -1149,7 +1221,6 @@ function animate() {
 
 // click handling
 window.addEventListener("pointerdown", (event) => {
-  
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
@@ -1186,9 +1257,8 @@ window.addEventListener("pointerdown", (event) => {
     }
   }
 
-  // room 2 inetractions
+  // room 2 interactions
   if (nextSceneLoaded) {
-   
     if (powerboxInactive && !powerActivated) {
       const hits = raycaster.intersectObject(powerboxInactive, true);
       if (hits.length > 0) {
@@ -1232,5 +1302,3 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-

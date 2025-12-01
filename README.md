@@ -45,3 +45,11 @@ Our prototype is built as a browser based JavaScript project using Vite as the b
 
 ## Reflection
 Looking back, we were way too amitious when we first started. We had a much more complex 3d model that was inspired by the escherian stairs. We quickly realized that with little 3d experience, this is very complicated first project. We had a lot of trouble with collision and figuring out the new engines on such a complicated model. Instead, we pivoted to a much more simple game and focused on the mechanic requirements rather than the aesthetics. As for roles, they stayed the same but we did help each other if needed. 
+
+# Devlog Entry - 11/21
+
+## How we satisfied the software requirements
+Our project continues to use the same technologies defined in F1: Three.js for rendering and Cannon-es for physics simulation. The game includes two separate scenes (Room 1 and Room 2), each defined by its own GLB file. When the player reaches the goal platform in Room 1, a transition function removes all Room 1 objects and physics bodies before loading the second GLB model and generating new colliders and interactions. Player interaction is implemented through raycasting, allowing objects such as the key in Room 1, the power box in Room 2, and the activation plate to respond to pointer clicks. Clicking the key removes it from the world and adds it to the inventory, and possession of the key directly affects later gameplay—the power box cannot be activated unless the key has been collected. This ensures that actions in one scene meaningfully influence what is possible in another. The physics puzzle is entirely skill-based: the player must push the cube with proper positioning and force, avoiding knocking it off or trapping it, ensuring that success depends on player reasoning and control rather than luck.
+
+## Reflection
+Looking back on our development process, our team’s approach changed significantly since F1. Early on, we were overly ambitious and realized halfway through that our original ideas were unrealistic given our experience and the project timeline. Learning from that, we chose to simplify our goals for this project and focus on building something achievable and stable. This shift allowed us to work more efficiently, understand our tools better, and ultimately deliver a complete game that still meets all the project requirements.

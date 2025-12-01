@@ -22,36 +22,33 @@ import * as CANNON from "cannon-es";
       position: absolute;
       bottom: 12px;
       left: 12px;
-      background: rgba(0,0,0,.45);
-      color: #fff;
-      padding: 8px 12px;
-      border-radius: 10px;
-      font-size: 14px;
       pointer-events: none;
+      background: rgba(0,0,0,.55);
+      color: #fff;
+      padding: 10px 12px;
+      border-radius: 10px;
       backdrop-filter: blur(4px);
-    }
-
-    #inv-title {
-      font-weight: 700;
-      margin-bottom: 4px;
-      font-size: 13px;
+      min-width: 120px;
+      font-size: 14px;
     }
 
     #inv-items {
       display: flex;
-      gap: 6px;
+      gap: 8px;
+      margin-top: 4px;
     }
 
-    .inv-item {
-      width: 28px;
-      height: 28px;
+    .inv-icon {
+      width: 32px;
+      height: 32px;
       background: rgba(255,255,255,0.15);
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 18px;
+      font-size: 28px;
       pointer-events: none;
+      outline: 2px solid rgba(255,255,255,0.4);
     }
   `;
   document.head.appendChild(style);
@@ -97,11 +94,45 @@ toggleHelpBtn?.addEventListener("click", () => {
   if (helpEl) helpEl.style.display = visible ? "none" : "block";
 });
 
-function addToInventory(icon = "❓") {
-  const slot = document.createElement("div");
-  slot.className = "inv-item";
-  slot.textContent = icon;
-  document.getElementById("inv-items").appendChild(slot);
+const inventoryUI = document.getElementById("inv-items");
+let keyCollected = false;
+
+/** Updates inventory panel visually with icons */
+function updateInventory() {
+  let inv = document.getElementById("inv-items");
+
+  // If the HUD or inventory isn't present (race with DOM ordering), create a minimal inventory UI
+  if (!inv) {
+    const hud = document.getElementById("hud") || document.body;
+    // avoid duplicating
+    if (!document.getElementById("inventory")) {
+      const invWrap = document.createElement("div");
+      invWrap.id = "inventory";
+      invWrap.innerHTML = `<div id="inv-title">Inventory</div><div id="inv-items"></div>`;
+      // ensure it sits on top
+      invWrap.style.position = "absolute";
+      invWrap.style.bottom = "12px";
+      invWrap.style.left = "12px";
+      invWrap.style.zIndex = "10000";
+      hud.appendChild(invWrap);
+    }
+    inv = document.getElementById("inv-items");
+    if (!inv) return;
+  }
+
+  inv.innerHTML = "";
+
+  if (keyCollected) {
+    const keyIcon = document.createElement("div");
+    keyIcon.className = "inv-icon";
+    keyIcon.textContent = "🔑";
+    keyIcon.setAttribute('role', 'img');
+    keyIcon.style.display = "flex";
+    keyIcon.style.alignItems = "center";
+    keyIcon.style.justifyContent = "center";
+    keyIcon.style.fontSize = "28px";
+    inv.appendChild(keyIcon);
+  }
 }
 
 // HUD text for each room
@@ -169,7 +200,6 @@ controls.enabled = false;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let keyMesh = null;
-let keyCollected = false;
 
 // room 2 power/plate/bridge meshes + flags
 /** @type {THREE.Mesh | null} */
@@ -714,7 +744,6 @@ window.addEventListener("keydown", (e) => {
         scene.remove(keyMesh);
         keyMesh = null;
       }
-      addToInventory("🔑");
       showToast("🔑 Key auto-collected (debug).", "info", 900);
     }
 
@@ -1130,11 +1159,30 @@ window.addEventListener("pointerdown", (event) => {
   if (!keyCollected && keyMesh) {
     const hits = raycaster.intersectObject(keyMesh);
     if (hits.length > 0) {
-      keyCollected = true;
-      scene.remove(keyMesh);
-      addToInventory("🔑");
-      showToast("🔑 Key collected!", "success", 1300);
-      return;
+      // require the player be near/on top of the key to collect it
+      const px = playerBody.position.x;
+      const pz = playerBody.position.z;
+      const kx = keyMesh.position.x;
+      const kz = keyMesh.position.z;
+      const ky = keyMesh.position.y;
+      const py = playerBody.position.y;
+
+      const horizDist = Math.hypot(kx - px, kz - pz);
+      const vertDist = Math.abs(ky - py);
+      const PICKUP_HORIZ_DIST = 1.2; // meters
+      const PICKUP_VERT_DIST = 1.5; // meters
+
+      if (horizDist <= PICKUP_HORIZ_DIST && vertDist <= PICKUP_VERT_DIST) {
+        keyCollected = true;
+        scene.remove(keyMesh);
+        keyMesh = null;
+        updateInventory();
+        showToast("🔑 Key collected!", "success", 1300);
+        return;
+      } else {
+        showToast("Move closer to the key to pick it up", "info", 1100);
+        // do not return here; allow other click handlers to run
+      }
     }
   }
 

@@ -269,6 +269,16 @@ let nextSceneLoaded = false;
 let currentMap = null;
 let currentStartPoint = null;
 
+//Checkpoints
+let checkpointBody = null;
+let checkpointMesh = null;
+/** @type {THREE.Mesh<any, any, any>[]} */
+let checkpointMeshes = [];
+
+let lastCheckpointX = null;
+let lastCheckpointY = null;
+let lastCheckpointZ = null;
+
 // physics World
 const world = new CANNON.World({
   gravity: new CANNON.Vec3(0, -15, 0),
@@ -560,6 +570,16 @@ loader.load(
           scene.add(keyMesh);
           console.log("Spawned key mesh!");
         }
+
+        if (n === "cubestart" || n === "cubeend") {
+          // mark room1 checkpoints (cubestart and cubeend)
+          checkpointMeshes.push(child);
+          // keep singular reference for legacy uses (if any)
+          if (!checkpointMesh) {
+            checkpointMesh = child;
+            checkpointBody = child.userData?.pathCollider || null;
+          }
+        }
       }
     });
 
@@ -627,6 +647,14 @@ function loadNextScene() {
   showToast("Loading next room...", "success", 1300);
 
   const keepObjects = [camera, playerMesh, sunLight, ambientLight];
+
+  // clear any room-specific checkpoints when switching rooms
+  checkpointMeshes = [];
+  checkpointMesh = null;
+  checkpointBody = null;
+  lastCheckpointX = null;
+  lastCheckpointY = null;
+  lastCheckpointZ = null;
 
   const objectsToRemove = [];
   scene.children.forEach((obj) => {
@@ -702,6 +730,14 @@ function loadNextScene() {
           }
           if (name === "end") {
             endgoal = child;
+          }
+          if (name === "plate_inactive") {
+            // room2 checkpoint
+            checkpointMeshes.push(child);
+            if (!checkpointMesh) {
+              checkpointMesh = child;
+              checkpointBody = child.userData?.pathCollider || null;
+            }
           }
         }
       });
@@ -1053,6 +1089,23 @@ function resetPlayerToStart() {
   showToast("💥 You fell! Resetting…", "fail");
 }
 
+function resetPlayer() {
+    if (lastCheckpointY !== null) {
+        playerBody.position.set(lastCheckpointX, lastCheckpointY, lastCheckpointZ);
+        playerBody.velocity.set(0,0,0);
+        playerMesh.position.copy(playerBody.position);
+        showToast("Respawned at checkpoint!", "info");
+        return;
+    }
+
+  // fallback: spawn at the appropriate room start
+  if (nextSceneLoaded && currentStartPoint) {
+    resetPlayerToStart2();
+  } else {
+    resetPlayerToStart();
+  }
+}
+
 function resetPuzzleToStart() {
   if (!cubeStart || !puzzleBody) return;
   const worldBox = new THREE.Box3().setFromObject(cubeStart);
@@ -1167,11 +1220,8 @@ function animate() {
     const fallThreshold = mapMinY - 5;
 
     if (playerBody.position.y < fallThreshold) {
-      if (nextSceneLoaded && currentStartPoint) {
-        resetPlayerToStart2();
-      } else {
-        resetPlayerToStart();
-      }
+      // Prefer respawning at a checkpoint if available, otherwise at the room start
+      resetPlayer();
     }
 
     if (!nextSceneLoaded && puzzleBody && puzzleBody.position.y < fallThreshold) {
@@ -1199,7 +1249,7 @@ function animate() {
     const now2 = performance.now();
 
     if (now2 - lastResetTime > 500 && playerBody.position.y < mapMinY - 5) {
-      resetPlayerToStart2();
+      resetPlayer();
     }
   }
 
@@ -1213,6 +1263,48 @@ function animate() {
       level2Won = true;
       showToast("🎉 You cleared Level 2! Press R to restart the game.", "success", 2500);
       showWinBanner();
+    }
+  }
+
+  if (checkpointMeshes && checkpointMeshes.length > 0) {
+    const playerPos = playerMesh.position;
+    for (let i = 0; i < checkpointMeshes.length; i++) {
+      const cp = checkpointMeshes[i];
+      if (!cp) continue;
+      const cpBox = new THREE.Box3().setFromObject(cp);
+      if (cpBox.isEmpty()) continue;
+
+      // define a small volume on top of the platform where standing counts as a checkpoint
+      const topY = cpBox.max.y;
+      const horizPad = 0.6; // allow standing slightly off-center
+      const verticalHeight = 1.8; // how high above the platform counts
+
+      const topBox = new THREE.Box3(
+        new THREE.Vector3(cpBox.min.x - horizPad, topY, cpBox.min.z - horizPad),
+        new THREE.Vector3(cpBox.max.x + horizPad, topY + verticalHeight, cpBox.max.z + horizPad)
+      );
+
+      if (topBox.containsPoint(playerPos)) {
+        const newX = cp.position.x;
+        const newY = topY + 1.5;
+        const newZ = cp.position.z;
+
+        const changed =
+          lastCheckpointY === null ||
+          lastCheckpointX !== newX ||
+          lastCheckpointY !== newY ||
+          lastCheckpointZ !== newZ;
+
+        lastCheckpointX = newX;
+        lastCheckpointY = newY;
+        lastCheckpointZ = newZ;
+
+        if (changed) {
+          showToast("Checkpoint saved", "info", 900);
+        }
+
+        break;
+      }
     }
   }
 

@@ -74,48 +74,6 @@ import * as CANNON from "cannon-es";
       border-radius:18px;
       border:1px solid rgba(255,255,255,.4);
     }
-    #touch-joystick {
-      position: absolute;
-      bottom: 80px;
-      left: 80px;
-      width: 110px;
-      height: 110px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.1);
-      border: 2px solid rgba(255,255,255,0.25);
-      pointer-events: auto;
-      touch-action: none;      /* important on mobile */
-      z-index: 10001;          /* above the canvas */
-    }
-
-    #touch-joystick-knob {
-      position: absolute;
-      left: 35px;
-      top: 35px;
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.6);
-      pointer-events: none;
-    }
-    #touch-jump {
-      position: absolute;
-      right: 28px;
-      bottom: 64px;
-      width: 84px;
-      height: 84px;
-      border-radius: 14px;
-      background: rgba(255,255,255,0.08);
-      color: #fff;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      font-weight:700;
-      pointer-events: auto;
-      user-select: none;
-      -webkit-user-select: none;
-      touch-action: manipulation;
-    }
   `;
   document.head.appendChild(style);
 
@@ -133,48 +91,8 @@ import * as CANNON from "cannon-es";
     <div id="winBanner">
       <div id="winBannerInner">Level 2 complete! 🎉</div>
     </div>
-    <div id="touch-joystick">
-      <div id="touch-joystick-knob"></div>
-    </div>
-    <div id="touch-jump">Jump</div>
   `;
   document.body.appendChild(hud);
-
-  // 🔧 Always show joystick & jump (desktop + mobile), pinned above canvas
-  try {
-    const joyEl = document.getElementById("touch-joystick");
-    const jumpEl = document.getElementById("touch-jump");
-
-    if (joyEl) {
-      document.body.appendChild(joyEl);
-      joyEl.style.display = "block";
-      joyEl.style.position = "fixed";
-      joyEl.style.bottom = "80px";
-      joyEl.style.left = "80px";
-      joyEl.style.zIndex = "10001";
-      joyEl.style.touchAction = "none";
-    }
-
-    if (jumpEl) {
-      document.body.appendChild(jumpEl);
-      jumpEl.style.display = "flex";
-      jumpEl.style.position = "fixed";
-      jumpEl.style.right = "18px";
-      jumpEl.style.bottom = "18px";
-      jumpEl.style.width = "72px";
-      jumpEl.style.height = "72px";
-      jumpEl.style.alignItems = "center";
-      jumpEl.style.justifyContent = "center";
-      jumpEl.style.borderRadius = "12px";
-      jumpEl.style.background = "rgba(255,255,255,0.12)";
-      jumpEl.style.pointerEvents = "auto";
-      jumpEl.style.fontWeight = "700";
-      jumpEl.style.color = "#fff";
-      jumpEl.style.zIndex = "10002";
-    }
-  } catch (e) {
-    // ignore
-  }
 })();
 
 // Global error handlers to prevent crashes from stopping the main loop

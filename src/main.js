@@ -177,6 +177,296 @@ import * as CANNON from "cannon-es";
   }
 })();
 
+// Global error handlers to prevent crashes from stopping the main loop
+window.addEventListener("error", (e) => {
+  try {
+    console.error("Unhandled error:", e.error || e.message || e);
+  } catch (ee) {
+    console.error("Error in global error handler", ee);
+  }
+});
+
+window.addEventListener("unhandledrejection", (ev) => {
+  try {
+    console.error("Unhandled rejection:", ev.reason);
+  } catch (ee) {
+    console.error("Error in rejection handler", ee);
+  }
+});
+
+// --- Internationalization (i18n) support ---
+const SUPPORTED_LANGS = ["en", "zh", "ar"];
+let currentLang = localStorage.getItem("lang") || (navigator.language || "en").slice(0, 2);
+if (!SUPPORTED_LANGS.includes(currentLang)) currentLang = "en";
+
+const i18n = {
+  en: {
+    toggle_help: "Toggle instructions",
+    footer_room1: "Falling off resets you to Room 1 start.",
+    footer_room2: "Falling off respawns you in Room 2.",
+    inventory_title: "Inventory",
+    win_banner: "Level 2 complete! 🎉",
+    mobile_jump: "Jump",
+    dpad_up: "Forward",
+    dpad_down: "Back",
+    dpad_left: "Left",
+    dpad_right: "Right",
+    hud_room1_title: "Room 1 – Crate & Key",
+    hud_room1_move: "W/A/S/D move the sphere",
+    hud_room1_jump: "Space to jump",
+    hud_room1_desc1: "Push the blue cube to its goal to reveal the end platforms.",
+    hud_room1_desc2: "Click the gold key to collect it for Room 2.",
+    hud_room2_title: "Room 2 – Power Circuit",
+    hud_room2_desc1: "Use your key on the power box (click it).",
+    hud_room2_desc2: "Then activate the plate (click it). When both are active, the bridge appears.",
+    spawned_at_start: "Spawned at start",
+    spawned_room2: "Spawned in room 2!",
+    checkpoint_saved: "Checkpoint saved",
+    key_collected: "Key collected!",
+    puzzle_solved: "Puzzle solved! End platforms revealed.",
+    you_fell_reset: "💥 You fell! Resetting…",
+    reset_fallback: "Reset (fallback)",
+    loading_next_room: "Loading next room...",
+    level2_cleared: "🎉 You cleared Level 2! Press R to restart the game.",
+    // additional toasts
+    no_cubestart: "No cubestart — box not spawned",
+    model_load_failed: "Model load failed",
+    restarting: "Restarting...",
+    entered_room2: "Entered room 2!",
+    failed_load_room2: "Failed to load room 2",
+    bridge_appears: "A bridge appears…",
+    jumped: "Jump!",
+    respawned_at_checkpoint: "Respawned at checkpoint!",
+    cube_reset: "Cube reset",
+    respawned_room2: "Respawned in Room 2!",
+    spawn_adjusted: "Spawn adjusted",
+    loading_next_scene: "Loading next scene...",
+    runtime_error: "Runtime error occurred — see console",
+    move_closer_to_key: "Move closer to the key to pick it up",
+    need_key_activate: "You need a key to activate this.",
+    powerbox_activated: "⚡ Power box activated!",
+    activate_power_box_first: "Activate the power box first.",
+    plate_activated: "Plate activated.",
+    // save UI
+    saves_title: "💾 Saves",
+    auto_save: "Auto-save",
+    theme_label: "Theme",
+    light_label: "Light",
+    dark_label: "Dark",
+    save_button: "Save",
+    load_button: "Load",
+    del_button: "Del",
+    load_last_autosave: "Load last autosave",
+    clear_saves: "Clear saves",
+    clear_saves_confirm: "Clear all saves?",
+    saved_to_slot: "Saved to slot",
+    auto_saved_at: "Auto-saved at",
+    saved_at: "Saved at",
+    checkpoint_label: "checkpoint",
+  },
+  zh: {
+    toggle_help: "切换说明",
+    footer_room1: "掉落会重置到房间1开始点。",
+    footer_room2: "掉落会重生到房间2。",
+    inventory_title: "物品栏",
+    win_banner: "第2关完成！🎉",
+    mobile_jump: "跳跃",
+    dpad_up: "前进",
+    dpad_down: "后退",
+    dpad_left: "左",
+    dpad_right: "右",
+    hud_room1_title: "房间1 – 箱子与钥匙",
+    hud_room1_move: "W/A/S/D 控制球移动",
+    hud_room1_jump: "空格键 跳跃",
+    hud_room1_desc1: "推动蓝色方块到目标以显露终点平台。",
+    hud_room1_desc2: "点击金色钥匙以收集并进入房间2。",
+    hud_room2_title: "房间2 – 电路",
+    hud_room2_desc1: "在电源箱上使用你的钥匙（点击它）。",
+    hud_room2_desc2: "然后激活踏板（点击）。两者激活后，桥会出现。",
+    spawned_at_start: "已生成在起点",
+    spawned_room2: "已进入房间2！",
+    checkpoint_saved: "已保存检查点",
+    key_collected: "已拾取钥匙！",
+    puzzle_solved: "拼图完成！终点平台已显现。",
+    you_fell_reset: "💥 你掉了！正在重置…",
+    reset_fallback: "重置（回退）",
+    loading_next_room: "正在加载下一房间...",
+    level2_cleared: "🎉 你通过了第2关！按 R 重启游戏。",
+    // additional toasts
+    no_cubestart: "未找到 cubestart — 方块未生成",
+    model_load_failed: "模型加载失败",
+    restarting: "正在重启...",
+    entered_room2: "已进入房间2！",
+    failed_load_room2: "加载房间2失败",
+    bridge_appears: "一座桥出现了…",
+    jumped: "跳跃！",
+    respawned_at_checkpoint: "在检查点重生！",
+    cube_reset: "方块已重置",
+    respawned_room2: "在房间2重生！",
+    spawn_adjusted: "生成位置已调整",
+    loading_next_scene: "正在加载下一个场景...",
+    runtime_error: "运行时错误 — 查看控制台",
+    move_closer_to_key: "靠近钥匙以拾取",
+    need_key_activate: "需要钥匙来激活此物件。",
+    powerbox_activated: "⚡ 电源箱已激活！",
+    activate_power_box_first: "请先激活电源箱。",
+    plate_activated: "踏板已激活。",
+    // save UI
+    saves_title: "💾 存档",
+    auto_save: "自动保存",
+    theme_label: "主题",
+    light_label: "明亮",
+    dark_label: "黑暗",
+    save_button: "保存",
+    load_button: "读取",
+    del_button: "删除",
+    load_last_autosave: "读取最近自动保存",
+    clear_saves: "清除存档",
+    clear_saves_confirm: "清除所有存档？",
+    saved_to_slot: "已保存到槽",
+    auto_saved_at: "自动保存于",
+    saved_at: "已保存于",
+    checkpoint_label: "检查点",
+  },
+  ar: {
+    toggle_help: "إظهار/إخفاء التعليمات",
+    footer_room1: "السقوط يعيدك إلى بداية الغرفة 1.",
+    footer_room2: "السقوط يعيدك إلى مكان إعادة الظهور في الغرفة 2.",
+    inventory_title: "المخزون",
+    win_banner: "انتهى المستوى 2! 🎉",
+    mobile_jump: "قفز",
+    dpad_up: "أمام",
+    dpad_down: "خلف",
+    dpad_left: "يسار",
+    dpad_right: "يمين",
+    hud_room1_title: "الغرفة 1 – الصندوق والمفتاح",
+    hud_room1_move: "W/A/S/D تحرك الكرة",
+    hud_room1_jump: "المسافة للقفز",
+    hud_room1_desc1: "ادفع المكعب الأزرق إلى هدفه لإظهار منصات النهاية.",
+    hud_room1_desc2: "انقر المفتاح الذهبي لالتقاطه للغرفة 2.",
+    hud_room2_title: "الغرفة 2 – الدائرة الكهربائية",
+    hud_room2_desc1: "استخدم مفتاحك على صندوق الطاقة (انقر عليه).",
+    hud_room2_desc2: "ثم فعل اللوح (انقر). عندما يكون الاثنان فعّالين، يظهر الجسر.",
+    spawned_at_start: "تم الظهور عند البداية",
+    spawned_room2: "تم الدخول إلى الغرفة 2!",
+    checkpoint_saved: "تم حفظ نقطة التفتيش",
+    key_collected: "تم جمع المفتاح!",
+    puzzle_solved: "تم حل اللغز! تم كشف منصات النهاية.",
+    you_fell_reset: "💥 سقطت! إعادة التعيين...",
+    reset_fallback: "إعادة التعيين (احتياطي)",
+    loading_next_room: "جارٍ تحميل الغرفة التالية...",
+    level2_cleared: "🎉 أنهيت المستوى 2! اضغط R لإعادة تشغيل اللعبة.",
+    // additional toasts
+    no_cubestart: "لم يتم العثور على cubestart — لم يتم إنشاء الصندوق",
+    model_load_failed: "فشل تحميل النموذج",
+    restarting: "جارٍ إعادة التشغيل...",
+    entered_room2: "تم الدخول إلى الغرفة 2!",
+    failed_load_room2: "فشل في تحميل الغرفة 2",
+    bridge_appears: "ظهر جسر...",
+    jumped: "قفز!",
+    respawned_at_checkpoint: "أُعيد الظهور عند نقطة التفتيش!",
+    cube_reset: "تم إعادة تعيين المكعب",
+    respawned_room2: "أُعيد الظهور في الغرفة 2!",
+    spawn_adjusted: "تم تعديل نقطة الظهور",
+    loading_next_scene: "جارٍ تحميل المشهد التالي...",
+    runtime_error: "حدث خطأ في الوقت التشغيل — راجع وحدة التحكم",
+    move_closer_to_key: "اقترب أكثر من المفتاح لالتقاطه",
+    need_key_activate: "تحتاج مفتاحًا لتنشيط هذا.",
+    powerbox_activated: "⚡ تم تفعيل صندوق الطاقة!",
+    activate_power_box_first: "فعّل صندوق الطاقة أولاً.",
+    plate_activated: "تم تفعيل اللوح.",
+    // save UI
+    saves_title: "💾 الحفظ",
+    auto_save: "حفظ تلقائي",
+    theme_label: "الموضوع",
+    light_label: "فاتح",
+    dark_label: "داكن",
+    save_button: "حفظ",
+    load_button: "تحميل",
+    del_button: "حذف",
+    load_last_autosave: "تحميل آخر حفظ تلقائي",
+    clear_saves: "مسح الحفظات",
+    clear_saves_confirm: "هل تريد مسح جميع الحفظات؟",
+    saved_to_slot: "تم الحفظ في الفتحة",
+    auto_saved_at: "حفظ تلقائي في",
+    saved_at: "تم الحفظ في",
+    checkpoint_label: "نقطة حفظ",
+  },
+};
+
+function t(key) {
+  return (i18n[currentLang] && i18n[currentLang][key]) || (i18n.en && i18n.en[key]) || key;
+}
+
+function applyTranslations() {
+  // direction
+  if (currentLang === "ar") {
+    document.documentElement.dir = "rtl";
+    document.body.style.direction = "rtl";
+  } else {
+    document.documentElement.dir = "ltr";
+    document.body.style.direction = "ltr";
+  }
+
+  // HUD elements
+  const toggleBtn = document.getElementById("toggleHelpBtn");
+  if (toggleBtn) toggleBtn.setAttribute("aria-label", t("toggle_help"));
+
+  const footer = document.getElementById("footerHint");
+  if (footer) footer.textContent = (typeof nextSceneLoaded !== 'undefined' && nextSceneLoaded) ? t("footer_room2") : t("footer_room1");
+
+  const invTitle = document.getElementById("inv-title");
+  if (invTitle) invTitle.textContent = t("inventory_title");
+
+  const winInner = document.getElementById("winBannerInner");
+  if (winInner) winInner.textContent = t("win_banner");
+
+  const jumpBtnEl = document.getElementById("mobile-jump");
+  if (jumpBtnEl) jumpBtnEl.textContent = t("mobile_jump");
+
+  // HUD room text
+  if (typeof setHUDRoom1 === "function") setHUDRoom1();
+  if (typeof setHUDRoom2 === "function") setHUDRoom2();
+
+  // update any toasts or messages if desired in future
+}
+
+// language selector UI
+function ensureLanguageSelector() {
+  const hud = document.getElementById("hud");
+  if (!hud) return;
+  if (document.getElementById("langSelect")) return;
+
+  const sel = document.createElement("select");
+  sel.id = "langSelect";
+  sel.style.position = "absolute";
+  sel.style.top = "12px";
+  sel.style.left = "64px";
+  sel.style.pointerEvents = "auto";
+
+  const opts = [
+    { v: "en", label: "English" },
+    { v: "zh", label: "中文" },
+    { v: "ar", label: "العربية" },
+  ];
+  opts.forEach((o) => {
+    const opt = document.createElement("option");
+    opt.value = o.v;
+    opt.textContent = o.label;
+    sel.appendChild(opt);
+  });
+  sel.value = currentLang;
+  sel.addEventListener("change", (e) => {
+    currentLang = sel.value;
+    localStorage.setItem("lang", currentLang);
+    applyTranslations();
+  });
+
+  hud.appendChild(sel);
+}
+
+// language selector and translations will be initialized later once DOM and scene state exist
+
 
 const toastEl = /** @type {HTMLDivElement} */ (
   document.getElementById("toast")
@@ -196,13 +486,44 @@ const winBannerEl = /** @type {HTMLDivElement} */ (
 let toastTimer = /** @type {number|null} */ (null);
 let level2Won = false;
 
+// initialize language selector and apply translations now that HUD DOM exists
+try {
+  ensureLanguageSelector();
+  applyTranslations();
+} catch (e) {
+  console.warn("Language init failed:", e);
+}
+
 /**
  * succes and fail
  * @param {string | null} msg
  */
 function showToast(msg, kind = "info", ms = 1600) {
   if (!toastEl) return;
-  toastEl.textContent = msg;
+
+  // Support passing either a translation key or an English literal.
+  let text = msg;
+  try {
+    if (typeof msg === "string") {
+      // if msg is a key in current language, translate it
+      if (i18n && i18n[currentLang] && i18n[currentLang][msg]) {
+        text = t(msg);
+      } else if (i18n && i18n.en) {
+        // reverse-lookup: if msg matches an English value, map to its key and translate
+        for (const k in i18n.en) {
+          if (i18n.en[k] === msg) {
+            text = t(k);
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // fallback to given msg on any error
+    text = msg;
+  }
+
+  toastEl.textContent = text;
   toastEl.classList.remove("success", "fail", "show");
   if (kind === "success") toastEl.classList.add("success");
   if (kind === "fail") toastEl.classList.add("fail");
@@ -266,30 +587,30 @@ function updateInventory() {
 function setHUDRoom1() {
   if (helpEl) {
     helpEl.innerHTML = `
-      <div style="font-weight:700;margin-bottom:6px;">Room 1 – Crate & Key</div>
-      <div><kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> move the sphere</div>
-      <div><kbd>Space</kbd> to jump</div>
-      <div style="margin-top:6px">Push the blue cube to its goal to reveal the end platforms.</div>
-      <div style="margin-top:4px">Click the gold key to collect it for Room 2.</div>
+      <div style="font-weight:700;margin-bottom:6px;">${t("hud_room1_title")}</div>
+      <div>${t("hud_room1_move")}</div>
+      <div>${t("hud_room1_jump")}</div>
+      <div style="margin-top:6px">${t("hud_room1_desc1")}</div>
+      <div style="margin-top:4px">${t("hud_room1_desc2")}</div>
     `;
   }
   if (footerHintEl) {
-    footerHintEl.textContent = "Falling off resets you to Room 1 start.";
+    footerHintEl.textContent = t("footer_room1");
   }
 }
 
 function setHUDRoom2() {
   if (helpEl) {
     helpEl.innerHTML = `
-      <div style="font-weight:700;margin-bottom:6px;">Room 2 – Power Circuit</div>
-      <div><kbd>W</kbd>/<kbd>A</kbd>/<kbd>S</kbd>/<kbd>D</kbd> move the sphere</div>
-      <div><kbd>Space</kbd> to jump</div>
-      <div style="margin-top:6px">Use your key on the power box (click it).</div>
-      <div style="margin-top:4px">Then activate the plate (click it). When both are active, the bridge appears.</div>
+      <div style="font-weight:700;margin-bottom:6px;">${t("hud_room2_title")}</div>
+      <div>${t("hud_room1_move")}</div>
+      <div>${t("hud_room1_jump")}</div>
+      <div style="margin-top:6px">${t("hud_room2_desc1")}</div>
+      <div style="margin-top:4px">${t("hud_room2_desc2")}</div>
     `;
   }
   if (footerHintEl) {
-    footerHintEl.textContent = "Falling off respawns you in Room 2.";
+    footerHintEl.textContent = t("footer_room2");
   }
 }
 
@@ -751,6 +1072,11 @@ function saveToSlot(slotIndex, label) {
   persistSavesToStorage();
   renderSaveUI();
   console.log('💾 Saved to slot', slotIndex, snapshot);
+  try {
+    // show a localized toast and update status
+    showToast(`${t('saved_to_slot')} ${slotIndex + 1}`, 'success', 900);
+    if (statusEl) statusEl.textContent = `${t('saved_to_slot')} ${slotIndex + 1}`;
+  } catch (e) {}
   return true;
 }
 
@@ -760,6 +1086,9 @@ function autosaveToLastSlot() {
   const ok = saveToSlot(slot, `Auto ${new Date().toLocaleTimeString()}`);
   if (ok) lastAutoSaveSlot = slot;
   persistSavesToStorage();
+  try {
+    if (ok && statusEl) statusEl.textContent = `${t('auto_saved_at')} ${new Date().toLocaleTimeString()}`;
+  } catch (e) {}
 }
 
 function loadFromSlot(slotIndex) {
@@ -843,7 +1172,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { try
 function renderSaveUI() {
   uiRoot.innerHTML = '';
   const title = document.createElement('div');
-  title.textContent = '💾 Saves';
+  title.textContent = t('saves_title');
   title.style.fontWeight = '700';
   title.style.marginBottom = '6px';
   uiRoot.appendChild(title);
@@ -853,7 +1182,7 @@ function renderSaveUI() {
   autosaveRow.style.alignItems = 'center';
   autosaveRow.style.justifyContent = 'space-between';
   autosaveRow.style.marginBottom = '6px';
-  autosaveRow.innerHTML = `<div style="opacity:0.9">Auto-save</div>`;
+  autosaveRow.innerHTML = `<div style="opacity:0.9">${t('auto_save')}</div>`;
   const toggle = document.createElement('input');
   toggle.type = 'checkbox';
   toggle.checked = autosaveEnabled;
@@ -867,7 +1196,7 @@ function renderSaveUI() {
   themeRow.style.alignItems = 'center';
   themeRow.style.justifyContent = 'space-between';
   themeRow.style.marginBottom = '6px';
-  themeRow.innerHTML = `<div style="opacity:0.9">Theme</div>`;
+  themeRow.innerHTML = `<div style="opacity:0.9">${t('theme_label')}</div>`;
   const themeToggle = document.createElement('input');
   themeToggle.type = 'checkbox';
   themeToggle.checked = !!THEME_ENABLED;
@@ -886,10 +1215,10 @@ function renderSaveUI() {
   themeBtns.style.gap = '6px';
   themeBtns.style.marginBottom = '8px';
   const btnLight = document.createElement('button');
-  btnLight.textContent = 'Light';
+  btnLight.textContent = t('light_label');
   btnLight.onclick = () => { startThemeTransition('light', 700); };
   const btnDark = document.createElement('button');
-  btnDark.textContent = 'Dark';
+  btnDark.textContent = t('dark_label');
   btnDark.onclick = () => { startThemeTransition('dark', 700); };
   themeBtns.appendChild(btnLight);
   themeBtns.appendChild(btnDark);
@@ -913,18 +1242,18 @@ function renderSaveUI() {
     row.appendChild(label);
 
     const btnSave = document.createElement('button');
-    btnSave.textContent = 'Save';
+    btnSave.textContent = t('save_button');
     btnSave.onclick = () => saveToSlot(i);
     row.appendChild(btnSave);
 
     const btnLoad = document.createElement('button');
-    btnLoad.textContent = 'Load';
+    btnLoad.textContent = t('load_button');
     btnLoad.onclick = () => loadFromSlot(i);
     btnLoad.disabled = !slot;
     row.appendChild(btnLoad);
 
     const btnDel = document.createElement('button');
-    btnDel.textContent = 'Del';
+    btnDel.textContent = t('del_button');
     btnDel.onclick = () => deleteSlot(i);
     btnDel.disabled = !slot;
     row.appendChild(btnDel);
@@ -938,13 +1267,13 @@ function renderSaveUI() {
   quickRow.style.justifyContent = 'space-between';
   quickRow.style.marginTop = '6px';
   const btnLoadAuto = document.createElement('button');
-  btnLoadAuto.textContent = 'Load last autosave';
+  btnLoadAuto.textContent = t('load_last_autosave');
   btnLoadAuto.onclick = () => { if (typeof lastAutoSaveSlot === 'number') loadFromSlot(lastAutoSaveSlot); };
   quickRow.appendChild(btnLoadAuto);
 
   const btnClearAll = document.createElement('button');
-  btnClearAll.textContent = 'Clear saves';
-  btnClearAll.onclick = () => { if (confirm('Clear all saves?')) { saveSlots = new Array(MAX_SAVE_SLOTS).fill(null); lastSaveSlot = null; lastAutoSaveSlot = null; persistSavesToStorage(); renderSaveUI(); } };
+  btnClearAll.textContent = t('clear_saves');
+  btnClearAll.onclick = () => { if (confirm(t('clear_saves_confirm'))) { saveSlots = new Array(MAX_SAVE_SLOTS).fill(null); lastSaveSlot = null; lastAutoSaveSlot = null; persistSavesToStorage(); renderSaveUI(); } };
   quickRow.appendChild(btnClearAll);
 
   uiRoot.appendChild(quickRow);
@@ -1828,9 +2157,10 @@ const followPos = new THREE.Vector3();
 function animate() {
   requestAnimationFrame(animate);
 
-  const delta = clock.getDelta();
+  try {
+    const delta = clock.getDelta();
 
-  if (startPoint && !spawnAdjusted) {
+    if (startPoint && !spawnAdjusted) {
     const worldPos = new THREE.Vector3();
     startPoint.getWorldPosition(worldPos);
 
@@ -2003,7 +2333,12 @@ function animate() {
             mat.color.set(0x33ff66);
             setTimeout(() => { try { mat.color.copy(old); } catch (e) {} }, 600);
           }
-          showToast(`Saved at ${sp.name || 'checkpoint'}`, 'success', 900);
+          try {
+            const place = sp.name || t('checkpoint_label');
+            showToast(`${t('saved_at')} ${place}`, 'success', 900);
+          } catch (e) {
+            showToast('Saved at ' + (sp.name || 'checkpoint'), 'success', 900);
+          }
         }
       }
     }
@@ -2055,6 +2390,12 @@ function animate() {
   }
 
   renderer.render(scene, camera);
+  } catch (err) {
+    console.error("Error in animate loop:", err);
+    try {
+      showToast("Runtime error occurred — see console", "fail", 2000);
+    } catch (e) {}
+  }
 }
 
 // click handling

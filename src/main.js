@@ -84,6 +84,8 @@ import * as CANNON from "cannon-es";
       background: rgba(255,255,255,0.1);
       border: 2px solid rgba(255,255,255,0.25);
       pointer-events: auto;
+      touch-action: none;          
+      z-index: 10001;              
     }
 
     #touch-joystick-knob {
@@ -141,12 +143,17 @@ import * as CANNON from "cannon-es";
   try {
     const joyEl = document.getElementById("touch-joystick");
     const jumpEl = document.getElementById("touch-jump");
-    const isTouch = typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0);
+    const isTouch =
+      typeof window !== "undefined" &&
+      ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
     if (joyEl) {
       if (isTouch) {
         document.body.appendChild(joyEl);
         joyEl.style.display = "block";
+        joyEl.style.position = "fixed";   
+        joyEl.style.zIndex = "10001";     
+        joyEl.style.touchAction = "none"; 
       } else {
         joyEl.style.display = "none";
       }
@@ -178,11 +185,21 @@ import * as CANNON from "cannon-es";
   }
 })();
 
-const toastEl = /** @type {HTMLDivElement} */ (document.getElementById("toast"));
-const helpEl = /** @type {HTMLDivElement} */ (document.getElementById("instructions"));
-const toggleHelpBtn = /** @type {HTMLButtonElement} */ (document.getElementById("toggleHelpBtn"));
-const footerHintEl = /** @type {HTMLDivElement} */ (document.getElementById("footerHint"));
-const winBannerEl = /** @type {HTMLDivElement} */ (document.getElementById("winBanner"));
+const toastEl = /** @type {HTMLDivElement} */ (
+  document.getElementById("toast")
+);
+const helpEl = /** @type {HTMLDivElement} */ (
+  document.getElementById("instructions")
+);
+const toggleHelpBtn = /** @type {HTMLButtonElement} */ (
+  document.getElementById("toggleHelpBtn")
+);
+const footerHintEl = /** @type {HTMLDivElement} */ (
+  document.getElementById("footerHint")
+);
+const winBannerEl = /** @type {HTMLDivElement} */ (
+  document.getElementById("winBanner")
+);
 let toastTimer = /** @type {number|null} */ (null);
 let level2Won = false;
 
@@ -285,7 +302,7 @@ function setHUDRoom2() {
 
 setHUDRoom1();
 
-// Touchscreen joystick handling
+// touchscreen joystick handling
 const joy = document.getElementById("touch-joystick");
 const knob = document.getElementById("touch-joystick-knob");
 
@@ -294,43 +311,58 @@ let joyStartX = 0;
 let joyStartY = 0;
 
 if (joy && knob) {
-  joy.addEventListener("touchstart", (e) => {
-    const t = e.touches[0];
-    joyActive = true;
-    joyStartX = t.clientX;
-    joyStartY = t.clientY;
-  });
+  joy.addEventListener(
+    "touchstart",
+    (e) => {
+      e.preventDefault(); 
+      const t = e.touches[0];
+      joyActive = true;
+      joyStartX = t.clientX;
+      joyStartY = t.clientY;
+    },
+    { passive: false }    
+  );
 
-  joy.addEventListener("touchmove", (e) => {
-    if (!joyActive) return;
-    const t = e.touches[0];
+  joy.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!joyActive) return;
+      e.preventDefault(); 
 
-    const dx = t.clientX - joyStartX;
-    const dy = t.clientY - joyStartY;
+      const t = e.touches[0];
 
-    // limit joystick radius
-    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), 40);
-    const angle = Math.atan2(dy, dx);
+      const dx = t.clientX - joyStartX;
+      const dy = t.clientY - joyStartY;
 
-    knob.style.transform =
-      `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
+      // limit joystick radius
+      const dist = Math.min(Math.sqrt(dx * dx + dy * dy), 40);
+      const angle = Math.atan2(dy, dx);
 
-    // Convert joystick direction → WASD keys
-    keys["w"] = dy < -10;
-    keys["s"] = dy > 10;
-    keys["a"] = dx < -10;
-    keys["d"] = dx > 10;
-  });
+      knob.style.transform =
+        `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
+
+      // @ts-ignore
+      keys["w"] = dy < -10;
+      // @ts-ignore
+      keys["s"] = dy > 10;
+      // @ts-ignore
+      keys["a"] = dx < -10;
+      // @ts-ignore
+      keys["d"] = dx > 10;
+    },
+    { passive: false }
+  );
 
   joy.addEventListener("touchend", () => {
     joyActive = false;
     knob.style.transform = "translate(0,0)";
 
+    // @ts-ignore
     keys["w"] = keys["a"] = keys["s"] = keys["d"] = false;
   });
 } else {
-  // If joystick not present (HUD created elsewhere), ensure no-op but clear keys on touchend
   window.addEventListener("touchend", () => {
+    // @ts-ignore
     keys["w"] = keys["a"] = keys["s"] = keys["d"] = false;
   });
 }
@@ -887,8 +919,9 @@ function loadNextScene() {
           if (name === "end") {
             endgoal = child;
           }
-          if (name === "plate_inactive") {
-            // room2 checkpoint
+
+          // 🔧 Treat BOTH inactive and active plate as checkpoints in room 2
+          if (name === "plate_inactive" || name === "plate_active") {
             checkpointMeshes.push(child);
             if (!checkpointMesh) {
               checkpointMesh = child;
@@ -1150,7 +1183,7 @@ function handleMovement() {
         );
 
         const push = new CANNON.Vec3(
-         moveDir.x * pushForce,
+          moveDir.x * pushForce,
           0,
           moveDir.z * pushForce
         );
@@ -1246,13 +1279,13 @@ function resetPlayerToStart() {
 }
 
 function resetPlayer() {
-    if (lastCheckpointY !== null) {
-        playerBody.position.set(lastCheckpointX, lastCheckpointY, lastCheckpointZ);
-        playerBody.velocity.set(0,0,0);
-        playerMesh.position.copy(playerBody.position);
-        showToast("Respawned at checkpoint!", "info");
-        return;
-    }
+  if (lastCheckpointY !== null) {
+    playerBody.position.set(lastCheckpointX, lastCheckpointY, lastCheckpointZ);
+    playerBody.velocity.set(0, 0, 0);
+    playerMesh.position.copy(playerBody.position);
+    showToast("Respawned at checkpoint!", "info");
+    return;
+  }
 
   // fallback: spawn at the appropriate room start
   if (nextSceneLoaded && currentStartPoint) {
@@ -1422,28 +1455,40 @@ function animate() {
     }
   }
 
+  // 🔧 Updated checkpoint logic: use world-space box center for respawn coords
   if (checkpointMeshes && checkpointMeshes.length > 0) {
     const playerPos = playerMesh.position;
     for (let i = 0; i < checkpointMeshes.length; i++) {
       const cp = checkpointMeshes[i];
       if (!cp) continue;
+
       const cpBox = new THREE.Box3().setFromObject(cp);
       if (cpBox.isEmpty()) continue;
 
-      // define a small volume on top of the platform where standing counts as a checkpoint
       const topY = cpBox.max.y;
-      const horizPad = 0.6; // allow standing slightly off-center
-      const verticalHeight = 1.8; // how high above the platform counts
+      const horizPad = 0.6;          // allow standing slightly off-center
+      const verticalHeight = 1.8;    // how high above the platform counts
 
       const topBox = new THREE.Box3(
-        new THREE.Vector3(cpBox.min.x - horizPad, topY, cpBox.min.z - horizPad),
-        new THREE.Vector3(cpBox.max.x + horizPad, topY + verticalHeight, cpBox.max.z + horizPad)
+        new THREE.Vector3(
+          cpBox.min.x - horizPad,
+          topY,
+          cpBox.min.z - horizPad
+        ),
+        new THREE.Vector3(
+          cpBox.max.x + horizPad,
+          topY + verticalHeight,
+          cpBox.max.z + horizPad
+        )
       );
 
       if (topBox.containsPoint(playerPos)) {
-        const newX = cp.position.x;
-        const newY = topY + 1.5;
-        const newZ = cp.position.z;
+        // world-space center of the checkpoint mesh
+        const cpCenter = cpBox.getCenter(new THREE.Vector3());
+
+        const newX = cpCenter.x;
+        const newY = cpBox.max.y + 1.5; // spawn a bit above the top
+        const newZ = cpCenter.z;
 
         const changed =
           lastCheckpointY === null ||

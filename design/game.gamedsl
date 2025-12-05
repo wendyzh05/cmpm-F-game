@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "title": "CMPM-F Game Design",
+    "author": "designer",
+    "version": "1.0"
+  },
+
+  "savePoints": [
+    {
+      "name": "save1",
+      "slot": 0,
+      "label": "Entrance Save"
+    },
+    {
+      "name": "save2",
+      "slot": 1,
+      "label": "Mid Platform"
+    }
+  ],
+
+  "themeOverrides": {
+    "light": {
+      "ambientIntensity": 0.6,
+      "sunIntensity": 0.7
+    },
+    "dark": {
+      "ambientIntensity": 0.18,
+      "sunIntensity": 0.18
+    }
+  }
+}

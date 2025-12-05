@@ -80,7 +80,7 @@ import * as CANNON from "cannon-es";
   const hud = document.createElement("div");
   hud.id = "hud";
   hud.innerHTML = `
-    <button id="toggleHelpBtn" aria-label="Toggle instructions">?</button>
+    <button id="toggleHelpBtn" aria-label="Change Language">?</button>
     <div id="instructions" role="note"></div>
     <div id="toast" aria-live="polite"></div>
     <div id="footerHint">Falling off resets you.</div>
@@ -112,14 +112,14 @@ window.addEventListener("unhandledrejection", (ev) => {
   }
 });
 
-// --- Internationalization (i18n) support ---
+// language support
 const SUPPORTED_LANGS = ["en", "zh", "ar"];
 let currentLang = localStorage.getItem("lang") || (navigator.language || "en").slice(0, 2);
 if (!SUPPORTED_LANGS.includes(currentLang)) currentLang = "en";
 
 const i18n = {
   en: {
-    toggle_help: "Toggle instructions",
+    toggle_help: "Change Language",
     footer_room1: "Falling off resets you to Room 1 start.",
     footer_room2: "Falling off respawns you in Room 2.",
     inventory_title: "Inventory",
@@ -339,28 +339,30 @@ function applyTranslations() {
   const winInner = document.getElementById("winBannerInner");
   if (winInner) winInner.textContent = t("win_banner");
 
-  const jumpBtnEl = document.getElementById("mobile-jump");
-  if (jumpBtnEl) jumpBtnEl.textContent = t("mobile_jump");
-
   // HUD room text
-  if (typeof setHUDRoom1 === "function") setHUDRoom1();
-  if (typeof setHUDRoom2 === "function") setHUDRoom2();
+  if (typeof nextSceneLoaded !== 'undefined' && nextSceneLoaded) {
+    if (typeof setHUDRoom2 === "function") setHUDRoom2();
+  } else {
+    if (typeof setHUDRoom1 === "function") setHUDRoom1();
+  }
 
-  // update any toasts or messages if desired in future
 }
 
 // language selector UI
 function ensureLanguageSelector() {
-  const hud = document.getElementById("hud");
-  if (!hud) return;
+  const container = (typeof uiRoot !== 'undefined' && uiRoot) || document.getElementById("hud");
+  if (!container) return;
   if (document.getElementById("langSelect")) return;
 
   const sel = document.createElement("select");
   sel.id = "langSelect";
-  sel.style.position = "absolute";
-  sel.style.top = "12px";
-  sel.style.left = "64px";
   sel.style.pointerEvents = "auto";
+  sel.style.marginBottom = '10px';
+  sel.style.padding = '10px 10px';
+  sel.style.borderRadius = '10px';
+  sel.style.border = 'none';
+  sel.style.fontSize = '13px';
+  sel.style.cursor = 'pointer';
 
   const opts = [
     { v: "en", label: "English" },
@@ -378,7 +380,6 @@ function ensureLanguageSelector() {
     currentLang = sel.value;
     localStorage.setItem("lang", currentLang);
     applyTranslations();
-    // re-render save UI with new language
     try {
       renderSaveUI();
     } catch (err) {
@@ -386,11 +387,14 @@ function ensureLanguageSelector() {
     }
   });
 
-  hud.appendChild(sel);
+  if (container === uiRoot) {
+    sel.style.display = 'block';
+    sel.style.marginTop = '8px';
+    container.appendChild(sel);
+  } else {
+    container.appendChild(sel);
+  }
 }
-
-// language selector and translations will be initialized later once DOM and scene state exist
-
 
 const toastEl = /** @type {HTMLDivElement} */ (
   document.getElementById("toast")
@@ -425,7 +429,6 @@ try {
 function showToast(msg, kind = "info", ms = 1600) {
   if (!toastEl) return;
 
-  // Support passing either a translation key or an English literal.
   let text = msg;
   try {
     if (typeof msg === "string") {
@@ -473,7 +476,6 @@ let keyCollected = false;
 function updateInventory() {
   let inv = document.getElementById("inv-items");
 
-  // If the HUD or inventory isn't present (race with DOM ordering), create a minimal inventory UI
   if (!inv) {
     const hud = document.getElementById("hud") || document.body;
     // avoid duplicating
@@ -539,94 +541,6 @@ function setHUDRoom2() {
 }
 
 setHUDRoom1();
-
-// touchscreen joystick handling
-const joy = document.getElementById("touch-joystick");
-const knob = document.getElementById("touch-joystick-knob");
-
-let joyActive = false;
-let joyStartX = 0;
-let joyStartY = 0;
-
-if (joy && knob) {
-  joy.addEventListener(
-    "touchstart",
-    (e) => {
-      e.preventDefault(); // keep touches on the joystick, don’t scroll
-      const t = e.touches[0];
-      joyActive = true;
-      joyStartX = t.clientX;
-      joyStartY = t.clientY;
-    },
-    { passive: false }
-  );
-
-  joy.addEventListener(
-    "touchmove",
-    (e) => {
-      if (!joyActive) return;
-      e.preventDefault();
-
-      const t = e.touches[0];
-
-      const dx = t.clientX - joyStartX;
-      const dy = t.clientY - joyStartY;
-
-      // limit joystick radius
-      const dist = Math.min(Math.sqrt(dx * dx + dy * dy), 40);
-      const angle = Math.atan2(dy, dx);
-
-      knob.style.transform =
-        `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
-
-      // @ts-ignore
-      keys["w"] = dy < -10;
-      // @ts-ignore
-      keys["s"] = dy > 10;
-      // @ts-ignore
-      keys["a"] = dx < -10;
-      // @ts-ignore
-      keys["d"] = dx > 10;
-    },
-    { passive: false }
-  );
-
-  joy.addEventListener("touchend", () => {
-    joyActive = false;
-    knob.style.transform = "translate(0,0)";
-
-    // @ts-ignore
-    keys["w"] = keys["a"] = keys["s"] = keys["d"] = false;
-  });
-} else {
-  window.addEventListener("touchend", () => {
-    // @ts-ignore
-    keys["w"] = keys["a"] = keys["s"] = keys["d"] = false;
-  });
-}
-
-// touch jump button handling (calls tryJump on press)
-const jumpBtn = document.getElementById("touch-jump");
-if (jumpBtn) {
-  const onJump = (e) => {
-    if (e && typeof e.preventDefault === "function") e.preventDefault();
-    tryJump();
-    jumpBtn.classList.add("active");
-    setTimeout(() => jumpBtn.classList.remove("active"), 180);
-  };
-  jumpBtn.addEventListener("touchstart", onJump, { passive: false });
-  jumpBtn.addEventListener("pointerdown", onJump);
-}
-
-let lastTap = 0;
-
-window.addEventListener("touchstart", () => {
-  const now = Date.now();
-  if (now - lastTap < 250) {
-    tryJump();
-  }
-  lastTap = now;
-});
 
 // basic Scene Setup
 const scene = new THREE.Scene();
@@ -852,6 +766,50 @@ if (!THEME_ENABLED) {
   detectAndApplySystemTheme();
 }
 
+// External DSL (game design) support
+// Loads `/design/game.gamedsl` (JSON) and applies simple overrides
+let designDSL = null;
+let designSaveDefs = [];
+
+async function loadGameDSL() {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}design/game.gamedsl`);
+    if (!res.ok) {
+      console.log('No game DSL found at /design/game.gamedsl');
+      return;
+    }
+    const text = await res.text();
+    let obj = null;
+    try {
+      obj = JSON.parse(text);
+    } catch (e) {
+      console.warn('Failed to parse game DSL JSON', e);
+      return;
+    }
+    designDSL = obj;
+    if (Array.isArray(obj.savePoints)) designSaveDefs = obj.savePoints;
+
+    if (obj.themeOverrides) {
+      ['light', 'dark'].forEach((k) => {
+        if (obj.themeOverrides[k]) {
+          const o = obj.themeOverrides[k];
+          if (typeof o.ambientIntensity === 'number') THEMES[k].ambientIntensity = o.ambientIntensity;
+          if (typeof o.sunIntensity === 'number') THEMES[k].sunIntensity = o.sunIntensity;
+        }
+      });
+      console.log('Applied theme overrides from DSL');
+      try { applyTheme(currentThemeName); } catch (e) {}
+    }
+
+    console.log('Loaded game DSL', designDSL);
+  } catch (e) {
+    console.warn('Failed to load game DSL', e);
+  }
+}
+
+// start loading DSL early so map traversal can consult it
+loadGameDSL();
+
 //goal Platform
 let goalPlatform = null;
 let nextSceneLoaded = false;
@@ -930,10 +888,12 @@ let saveSlots = new Array(MAX_SAVE_SLOTS).fill(null);
 let lastSaveSlot = null; 
 let lastAutoSaveSlot = null;
 let autosaveEnabled = true;
-const AUTOSAVE_INTERVAL_MS = 15000; 
+const AUTOSAVE_INTERVAL_MS = 10000; 
 let autosaveTimer = null;
 
 let savePoints = []; 
+
+let checkpointsEnabled = false;
 
 function loadSavesFromStorage() {
   try {
@@ -1086,6 +1046,13 @@ statusEl.style.opacity = '0.9';
 statusEl.style.marginTop = '6px';
 uiRoot.appendChild(statusEl);
 
+try {
+  ensureLanguageSelector();
+  applyTranslations();
+} catch (e) {
+  console.warn('Failed to init language selector after uiRoot creation', e);
+}
+
 window.addEventListener('beforeunload', () => {
   try {
     autosaveToLastSlot();
@@ -1201,6 +1168,49 @@ function renderSaveUI() {
   quickRow.appendChild(btnClearAll);
 
   uiRoot.appendChild(quickRow);
+
+  try {
+    const selWrap = document.createElement('div');
+    selWrap.style.marginTop = '8px';
+    selWrap.style.display = 'flex';
+    selWrap.style.alignItems = 'center';
+    selWrap.style.gap = '8px';
+
+    const langLabel = document.createElement('div');
+    langLabel.textContent = t('toggle_help');
+    langLabel.style.opacity = '0.9';
+    langLabel.style.fontSize = '12px';
+    selWrap.appendChild(langLabel);
+
+    const sel = document.createElement('select');
+    sel.id = 'langSelect';
+    sel.style.padding = '4px 6px';
+    sel.style.borderRadius = '6px';
+    sel.style.fontSize = '13px';
+    sel.style.cursor = 'pointer';
+    const opts = [
+      { v: 'en', label: 'English' },
+      { v: 'zh', label: '中文' },
+      { v: 'ar', label: 'العربية' }
+    ];
+    opts.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.v;
+      opt.textContent = o.label;
+      sel.appendChild(opt);
+    });
+    sel.value = currentLang;
+    sel.addEventListener('change', () => {
+      currentLang = sel.value;
+      localStorage.setItem('lang', currentLang);
+      applyTranslations();
+      try { renderSaveUI(); } catch (err) { console.warn('Could not update save UI after language change', err); }
+    });
+    selWrap.appendChild(sel);
+    uiRoot.appendChild(selWrap);
+  } catch (e) {
+    console.warn('Failed to render language selector in save UI', e);
+  }
 }
 
 // helper: try to auto-load autosave at map load 
@@ -1406,12 +1416,29 @@ loader.load(
 
         createHiddenPathCollider(child);
 
-        // detect savepoint meshes by name (e.g. 'save', 'save1', 'savepoint')
-        if ((child.name || '').toLowerCase().includes('save')) {
+        (function() {
+          const nm = (child.name || '').toString();
+          const nameLower = nm.toLowerCase();
+
           let slotIndex = null;
-          const n = (child.name || '').toLowerCase();
-          const m = n.match(/save\s*(\d+)/) || n.match(/save(\d+)/);
-          if (m) slotIndex = Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, parseInt(m[1], 10) - 1));
+          let displayName = nm;
+          try {
+            if (designSaveDefs && designSaveDefs.length > 0) {
+              const def = designSaveDefs.find(s => (s.name || '').toString().toLowerCase() === nameLower);
+              if (def) {
+                slotIndex = typeof def.slot === 'number' ? Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, def.slot)) : null;
+                if (def.label) displayName = def.label;
+              }
+            }
+          } catch (e) {
+            // ignore DSL errors
+          }
+
+          if (slotIndex === null && nameLower.includes('save')) {
+            const m = nameLower.match(/save\s*(\d+)/) || nameLower.match(/save(\d+)/);
+            if (m) slotIndex = Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, parseInt(m[1], 10) - 1));
+          }
+
           if (slotIndex === null) {
             for (let i = 0; i < MAX_SAVE_SLOTS; ++i) {
               const occupied = savePoints.some(sp => sp.slotIndex === i);
@@ -1420,6 +1447,7 @@ loader.load(
             if (slotIndex === null) slotIndex = 0;
           }
 
+          // Create a visual marker for the savepoint
           const wb = new THREE.Box3().setFromObject(child);
           const center = wb.getCenter(new THREE.Vector3());
           const sphereGeo = new THREE.SphereGeometry(0.25, 12, 12);
@@ -1429,9 +1457,9 @@ loader.load(
           marker.position.copy(center);
           scene.add(marker);
 
-          savePoints.push({ name: child.name || 'save', slotIndex, pos: center.clone(), visual: marker, activatedAt: 0 });
-          console.log('🔖 Found savepoint:', child.name, '-> slot', slotIndex + 1);
-        }
+          savePoints.push({ name: displayName || child.name || 'save', slotIndex, pos: center.clone(), visual: marker, activatedAt: 0 });
+          console.log('🔖 Found savepoint:', child.name, '-> slot', slotIndex + 1, '(label:', displayName, ')');
+        })();
 
         const n = (child.name || "").toLowerCase();
         if (n === "start" || child.name === "start") {
@@ -1646,7 +1674,7 @@ function loadNextScene() {
             endgoal = child;
           }
 
-          // 🔧 Treat BOTH inactive and active plate as checkpoints in room 2
+          // Treat BOTH inactive and active plate as checkpoints in room 2
           if (name === "plate_inactive" || name === "plate_active") {
             checkpointMeshes.push(child);
             if (!checkpointMesh) {
@@ -2182,9 +2210,26 @@ function animate() {
     }
   }
 
-  // 🔧 Updated checkpoint logic: use world-space box center for respawn coords
+  // Updated checkpoint logic: use world-space box center for respawn coords
   if (checkpointMeshes && checkpointMeshes.length > 0) {
     const playerPos = playerMesh.position;
+    // If the player reaches the cubestart area, enable checkpoint saves
+    if (!checkpointsEnabled && cubeStart) {
+      try {
+        const csBox = new THREE.Box3().setFromObject(cubeStart);
+        if (!csBox.isEmpty()) {
+          const csCenter = csBox.getCenter(new THREE.Vector3());
+          const unlockDist = 1.6;
+          if (csCenter.distanceTo(playerMesh.position) < unlockDist) {
+            checkpointsEnabled = true;
+            showToast('Checkpoints enabled', 'success', 1200);
+            console.log('Checkpoints unlocked: player reached cubestart');
+          }
+        }
+      } catch (e) {
+        // ignore errors computing cubeStart bounds
+      }
+    }
     for (let i = 0; i < checkpointMeshes.length; i++) {
       const cp = checkpointMeshes[i];
       if (!cp) continue;
@@ -2228,7 +2273,10 @@ function animate() {
         lastCheckpointZ = newZ;
 
         if (changed) {
-          showToast("Checkpoint saved", "info", 900);
+          // only notify if checkpoints have been enabled (player reached cubestart)
+          if (checkpointsEnabled) {
+            showToast("Checkpoint saved", "info", 900);
+          }
         }
 
         break;
@@ -2245,23 +2293,24 @@ function animate() {
         const dist = sp.pos.distanceTo(px);
         const threshold = 1.2;
         if (dist < threshold && nowSp - (sp.activatedAt || 0) > 1200) {
-          // save to that slot
-          saveToSlot(sp.slotIndex, `Savepoint ${sp.name || ''}`);
-          lastAutoSaveSlot = sp.slotIndex;
+          // do nothing until checkpoints are enabled (player reached cubestart)
+          if (!checkpointsEnabled) continue;
+          lastSaveSlot = sp.slotIndex;
           persistSavesToStorage();
           sp.activatedAt = nowSp;
-          // animate marker (brief color change)
+
+          // animate marker briefly to indicate checkpoint registered
           if (sp.visual && sp.visual.material) {
             const mat = sp.visual.material;
             const old = mat.color.clone();
             mat.color.set(0x33ff66);
             setTimeout(() => { try { mat.color.copy(old); } catch (e) {} }, 600);
           }
+
           try {
-            const place = sp.name || t('checkpoint_label');
-            showToast(`${t('saved_at')} ${place}`, 'success', 900);
+            showToast(t('checkpoint_saved'), 'success', 900);
           } catch (e) {
-            showToast('Saved at ' + (sp.name || 'checkpoint'), 'success', 900);
+            showToast('Checkpoint saved', 'success', 900);
           }
         }
       }

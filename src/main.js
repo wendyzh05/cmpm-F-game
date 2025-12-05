@@ -460,6 +460,12 @@ function ensureLanguageSelector() {
     currentLang = sel.value;
     localStorage.setItem("lang", currentLang);
     applyTranslations();
+    // re-render save UI with new language
+    try {
+      renderSaveUI();
+    } catch (err) {
+      console.warn("Could not update save UI after language change", err);
+    }
   });
 
   hud.appendChild(sel);

@@ -442,6 +442,171 @@ sunLight.castShadow = true;
 sunLight.shadow.bias = -0.0005;
 scene.add(sunLight);
 
+// visual themes
+let isDarkMode = false; // current theme
+
+const THEMES = {
+  light: {
+    name: 'light',
+    bg: 0xa8d0ff,
+    fog: 0xa8d0ff,
+    ambientColor: 0xffffff,
+    // toned-down daylight to avoid blown-out highlights
+    ambientIntensity: 0.55,
+    sunColor: 0xfff3d9,
+    sunIntensity: 0.7,
+    sunPos: new THREE.Vector3(10, 20, 10),
+    uiBg: 'rgba(255,255,255,0.92)',
+    uiColor: '#111111',
+    savePointColor: 0x0077ff
+  },
+  dark: {
+    name: 'dark',
+    bg: 0x0b1220,
+    fog: 0x09101a,
+    ambientColor: 0x7f8ea3,
+    // subtle night settings
+    ambientIntensity: 0.18,
+    sunColor: 0x9fbfff,
+    sunIntensity: 0.18,
+    sunPos: new THREE.Vector3(-5, 10, -5),
+    uiBg: 'rgba(16,18,26,0.9)',
+    uiColor: '#ffffff',
+    savePointColor: 0x33ff66
+  }
+};
+
+function applyTheme(themeName) {
+  const theme = THEMES[themeName] || THEMES.light;
+  isDarkMode = themeName === 'dark';
+
+  // background and fog 
+  try {
+    scene.background = new THREE.Color(theme.bg);
+  } catch (e) {
+    console.warn('Theme bg apply failed, keeping existing background', e);
+  }
+  try {
+    scene.fog = new THREE.Fog(theme.fog, 10, 80);
+  } catch (e) {
+    console.warn('Theme fog apply failed', e);
+  }
+
+  // ambient and sun
+  ambientLight.color.setHex(theme.ambientColor);
+  ambientLight.intensity = theme.ambientIntensity;
+
+  sunLight.color.setHex(theme.sunColor);
+  sunLight.intensity = theme.sunIntensity;
+  sunLight.position.copy(theme.sunPos);
+
+  // UI root styling
+  try {
+    if (typeof uiRoot !== 'undefined' && uiRoot) {
+      uiRoot.style.background = theme.uiBg;
+      uiRoot.style.color = theme.uiColor;
+    }
+  } catch (e) {
+    console.warn('Failed to style UI root for theme', e);
+  }
+
+  // update savepoint markers color
+  try {
+    savePoints.forEach(sp => {
+      if (!sp.visual || !sp.visual.material) return;
+      sp.visual.material.color.setHex(theme.savePointColor);
+    });
+  } catch (e) {}
+
+  // update debug wireframes color (green->brighter/dimmer)
+  debugBodies.forEach(({ mesh }) => {
+    try {
+      mesh.material.color.setHex(isDarkMode ? 0x66ff99 : 0x00ff00);
+    } catch (e) {
+      // ignore
+    }
+  });
+
+  console.log('🌗 Theme applied:', themeName, 'bg:', theme.bg, 'fog:', theme.fog, 'ambient:', theme.ambientIntensity, 'sun:', theme.sunIntensity);
+}
+
+// theme application control
+let THEME_ENABLED = true; // set false to disable
+
+let currentThemeName = 'light';
+let targetThemeName = 'light';
+let themeTransition = {
+  active: false,
+  start: 0,
+  duration: 800, 
+  from: null,
+  to: null
+};
+
+function themeSnapshotFrom(name) {
+  const th = THEMES[name] || THEMES.light;
+  return {
+    bg: new THREE.Color(th.bg),
+    fog: new THREE.Color(th.fog),
+    ambientColor: new THREE.Color(th.ambientColor),
+    ambientIntensity: th.ambientIntensity,
+    sunColor: new THREE.Color(th.sunColor),
+    sunIntensity: th.sunIntensity,
+    sunPos: th.sunPos.clone(),
+  };
+}
+
+function startThemeTransition(toName, duration = 800) {
+  if (!THEME_ENABLED) { applyTheme(toName); currentThemeName = toName; return; }
+  const now = performance.now();
+  themeTransition.active = true;
+  themeTransition.start = now;
+  themeTransition.duration = duration;
+  themeTransition.from = {
+    bg: scene.background ? scene.background.clone() : new THREE.Color(0xa8d0ff),
+    fog: scene.fog ? new THREE.Color(scene.fog.color) : new THREE.Color(0xa8d0ff),
+    ambientColor: ambientLight.color.clone(),
+    ambientIntensity: ambientLight.intensity,
+    sunColor: sunLight.color.clone(),
+    sunIntensity: sunLight.intensity,
+    sunPos: sunLight.position.clone()
+  };
+  themeTransition.to = themeSnapshotFrom(toName);
+  targetThemeName = toName;
+}
+
+// detect and respond to system/browser color scheme 
+function detectAndApplySystemTheme() {
+  if (!THEME_ENABLED) return;
+  const mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+  const prefersDark = mq ? mq.matches : false;
+  startThemeTransition(prefersDark ? 'dark' : 'light', 700);
+  if (mq && typeof mq.addEventListener === 'function') {
+    mq.addEventListener('change', (e) => startThemeTransition(e.matches ? 'dark' : 'light', 700));
+  } else if (mq && typeof mq.addListener === 'function') {
+    // fallback
+    mq.addListener((e) => startThemeTransition(e.matches ? 'dark' : 'light', 700));
+  }
+}
+
+if (!THEME_ENABLED) {
+  try {
+    scene.background = new THREE.Color(0xa8d0ff);
+    scene.fog = null;
+    ambientLight.color.setHex(0xffffff);
+    ambientLight.intensity = 0.9;
+    sunLight.color.setHex(0xffffff);
+    sunLight.intensity = 1.0;
+    sunLight.position.set(10, 20, 10);
+
+    try { uiRoot.style.background = 'rgba(0,0,0,0.45)'; uiRoot.style.color = '#fff'; } catch (e) {}
+  } catch (e) {
+    console.warn('Failed to apply safe defaults when themes disabled', e);
+  }
+} else {
+  detectAndApplySystemTheme();
+}
+
 //goal Platform
 let goalPlatform = null;
 let nextSceneLoaded = false;
@@ -512,6 +677,291 @@ const debugBodies = [];
 let spawnAdjusted = false;
 let mapMinY = -50;
 let lastResetTime = 0;
+
+// save system with autosave
+const SAVE_KEY = 'cmpm-game-saves-v1';
+const MAX_SAVE_SLOTS = 3;
+let saveSlots = new Array(MAX_SAVE_SLOTS).fill(null); 
+let lastSaveSlot = null; 
+let lastAutoSaveSlot = null;
+let autosaveEnabled = true;
+const AUTOSAVE_INTERVAL_MS = 15000; 
+let autosaveTimer = null;
+
+let savePoints = []; 
+
+function loadSavesFromStorage() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    if (!obj || !obj.slots) return;
+    saveSlots = obj.slots.map(s => s || null).slice(0, MAX_SAVE_SLOTS);
+    lastSaveSlot = typeof obj.lastSaveSlot === 'number' ? obj.lastSaveSlot : null;
+    lastAutoSaveSlot = typeof obj.lastAutoSaveSlot === 'number' ? obj.lastAutoSaveSlot : null;
+    autosaveEnabled = !!obj.autosaveEnabled;
+    console.log('💾 Loaded save meta from storage:', {lastSaveSlot, lastAutoSaveSlot, autosaveEnabled});
+  } catch (e) {
+    console.warn('Failed to read saves from storage', e);
+  }
+}
+
+function persistSavesToStorage() {
+  try {
+    const obj = { slots: saveSlots, lastSaveSlot, lastAutoSaveSlot, autosaveEnabled };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(obj));
+  } catch (e) {
+    console.warn('Failed to persist saves', e);
+  }
+}
+
+function makeSaveSnapshot(label) {
+  const snapshot = {
+    label: label || `Save ${new Date().toLocaleTimeString()}`,
+    timestamp: Date.now(),
+    player: null,
+    puzzle: null,
+    solved: false
+  };
+
+  if (playerBody) {
+    snapshot.player = {
+      pos: { x: playerBody.position.x, y: playerBody.position.y, z: playerBody.position.z },
+      vel: { x: playerBody.velocity.x, y: playerBody.velocity.y, z: playerBody.velocity.z }
+    };
+  }
+
+  if (puzzleBody) {
+    snapshot.puzzle = {
+      pos: { x: puzzleBody.position.x, y: puzzleBody.position.y, z: puzzleBody.position.z },
+      vel: { x: puzzleBody.velocity.x, y: puzzleBody.velocity.y, z: puzzleBody.velocity.z }
+    };
+  }
+
+  // record whether puzzle was solved (end platforms visible)
+  snapshot.solved = endMeshes.length > 0 && endMeshes[0].visible;
+  return snapshot;
+}
+
+function saveToSlot(slotIndex, label) {
+  if (slotIndex < 0 || slotIndex >= MAX_SAVE_SLOTS) return false;
+  const snapshot = makeSaveSnapshot(label || `Slot ${slotIndex + 1}`);
+  saveSlots[slotIndex] = snapshot;
+  lastSaveSlot = slotIndex;
+  persistSavesToStorage();
+  renderSaveUI();
+  console.log('💾 Saved to slot', slotIndex, snapshot);
+  return true;
+}
+
+function autosaveToLastSlot() {
+  if (!autosaveEnabled) return;
+  const slot = lastSaveSlot !== null ? lastSaveSlot : 0;
+  const ok = saveToSlot(slot, `Auto ${new Date().toLocaleTimeString()}`);
+  if (ok) lastAutoSaveSlot = slot;
+  persistSavesToStorage();
+}
+
+function loadFromSlot(slotIndex) {
+  if (slotIndex < 0 || slotIndex >= MAX_SAVE_SLOTS) return false;
+  const snap = saveSlots[slotIndex];
+  if (!snap) return false;
+
+  // apply player state
+  if (snap.player && playerBody) {
+    playerBody.position.set(snap.player.pos.x, snap.player.pos.y, snap.player.pos.z);
+    playerBody.velocity.set(snap.player.vel.x, snap.player.vel.y, snap.player.vel.z);
+    playerMesh.position.copy(playerBody.position);
+    if (typeof playerBody.wakeUp === 'function') playerBody.wakeUp();
+  }
+
+  // apply puzzle state
+  if (snap.puzzle && puzzleBody) {
+    puzzleBody.position.set(snap.puzzle.pos.x, snap.puzzle.pos.y, snap.puzzle.pos.z);
+    puzzleBody.velocity.set(snap.puzzle.vel.x || 0, snap.puzzle.vel.y || 0, snap.puzzle.vel.z || 0);
+    puzzleBody.angularVelocity.set(0, 0, 0);
+    if (puzzleMesh) puzzleMesh.position.copy(puzzleBody.position);
+    if (typeof puzzleBody.wakeUp === 'function') puzzleBody.wakeUp();
+  }
+
+  // apply solved state
+  if (typeof snap.solved === 'boolean') {
+    endMeshes.forEach(m => (m.visible = snap.solved));
+  }
+
+  lastSaveSlot = slotIndex;
+  lastResetTime = performance.now();
+  console.log('📥 Loaded slot', slotIndex, snap);
+  renderSaveUI();
+  return true;
+}
+
+function deleteSlot(slotIndex) {
+  if (slotIndex < 0 || slotIndex >= MAX_SAVE_SLOTS) return false;
+  saveSlots[slotIndex] = null;
+  if (lastSaveSlot === slotIndex) lastSaveSlot = null;
+  if (lastAutoSaveSlot === slotIndex) lastAutoSaveSlot = null;
+  persistSavesToStorage();
+  renderSaveUI();
+  return true;
+}
+
+// save UI
+const uiRoot = document.createElement('div');
+uiRoot.style.position = 'fixed';
+uiRoot.style.right = '8px';
+uiRoot.style.top = '8px';
+uiRoot.style.zIndex = 9999;
+uiRoot.style.background = 'rgba(0,0,0,0.45)';
+uiRoot.style.padding = '8px';
+uiRoot.style.borderRadius = '6px';
+uiRoot.style.color = 'white';
+uiRoot.style.fontFamily = 'monospace';
+uiRoot.style.fontSize = '12px';
+uiRoot.style.minWidth = '220px';
+document.body.appendChild(uiRoot);
+// initialize saves UI from localStorage and start autosave ticking
+loadSavesFromStorage();
+renderSaveUI();
+if (autosaveTimer) clearInterval(autosaveTimer);
+autosaveTimer = setInterval(() => { autosaveToLastSlot(); }, AUTOSAVE_INTERVAL_MS);
+try { if (THEME_ENABLED) applyTheme(isDarkMode ? 'dark' : 'light'); } catch (e) {}
+
+const statusEl = document.createElement('div');
+statusEl.style.fontSize = '11px';
+statusEl.style.opacity = '0.9';
+statusEl.style.marginTop = '6px';
+uiRoot.appendChild(statusEl);
+
+window.addEventListener('beforeunload', () => {
+  try {
+    autosaveToLastSlot();
+  } catch (e) {}
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) { try { autosaveToLastSlot(); } catch (e) {} } });
+
+function renderSaveUI() {
+  uiRoot.innerHTML = '';
+  const title = document.createElement('div');
+  title.textContent = '💾 Saves';
+  title.style.fontWeight = '700';
+  title.style.marginBottom = '6px';
+  uiRoot.appendChild(title);
+
+  const autosaveRow = document.createElement('div');
+  autosaveRow.style.display = 'flex';
+  autosaveRow.style.alignItems = 'center';
+  autosaveRow.style.justifyContent = 'space-between';
+  autosaveRow.style.marginBottom = '6px';
+  autosaveRow.innerHTML = `<div style="opacity:0.9">Auto-save</div>`;
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.checked = autosaveEnabled;
+  toggle.addEventListener('change', () => { autosaveEnabled = toggle.checked; persistSavesToStorage(); renderSaveUI(); });
+  autosaveRow.appendChild(toggle);
+  uiRoot.appendChild(autosaveRow);
+
+  // theme controls
+  const themeRow = document.createElement('div');
+  themeRow.style.display = 'flex';
+  themeRow.style.alignItems = 'center';
+  themeRow.style.justifyContent = 'space-between';
+  themeRow.style.marginBottom = '6px';
+  themeRow.innerHTML = `<div style="opacity:0.9">Theme</div>`;
+  const themeToggle = document.createElement('input');
+  themeToggle.type = 'checkbox';
+  themeToggle.checked = !!THEME_ENABLED;
+  themeToggle.addEventListener('change', () => {
+    THEME_ENABLED = themeToggle.checked;
+    if (THEME_ENABLED) startThemeTransition(currentThemeName || 'light', 600);
+    else applyTheme('light');
+    renderSaveUI();
+  });
+  themeRow.appendChild(themeToggle);
+  uiRoot.appendChild(themeRow);
+
+  // manual theme buttons
+  const themeBtns = document.createElement('div');
+  themeBtns.style.display = 'flex';
+  themeBtns.style.gap = '6px';
+  themeBtns.style.marginBottom = '8px';
+  const btnLight = document.createElement('button');
+  btnLight.textContent = 'Light';
+  btnLight.onclick = () => { startThemeTransition('light', 700); };
+  const btnDark = document.createElement('button');
+  btnDark.textContent = 'Dark';
+  btnDark.onclick = () => { startThemeTransition('dark', 700); };
+  themeBtns.appendChild(btnLight);
+  themeBtns.appendChild(btnDark);
+  uiRoot.appendChild(themeBtns);
+
+  for (let i = 0; i < MAX_SAVE_SLOTS; ++i) {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '6px';
+    row.style.marginBottom = '4px';
+
+    const label = document.createElement('div');
+    label.style.flex = '1';
+    label.style.whiteSpace = 'nowrap';
+    label.style.overflow = 'hidden';
+    label.style.textOverflow = 'ellipsis';
+    const slot = saveSlots[i];
+    label.textContent = slot ? `${i+1}: ${slot.label} (${new Date(slot.timestamp).toLocaleTimeString()})` : `${i+1}: (empty)`;
+    if (lastSaveSlot === i) label.style.color = '#ffd966';
+    row.appendChild(label);
+
+    const btnSave = document.createElement('button');
+    btnSave.textContent = 'Save';
+    btnSave.onclick = () => saveToSlot(i);
+    row.appendChild(btnSave);
+
+    const btnLoad = document.createElement('button');
+    btnLoad.textContent = 'Load';
+    btnLoad.onclick = () => loadFromSlot(i);
+    btnLoad.disabled = !slot;
+    row.appendChild(btnLoad);
+
+    const btnDel = document.createElement('button');
+    btnDel.textContent = 'Del';
+    btnDel.onclick = () => deleteSlot(i);
+    btnDel.disabled = !slot;
+    row.appendChild(btnDel);
+
+    uiRoot.appendChild(row);
+  }
+
+  // quick load last autosave
+  const quickRow = document.createElement('div');
+  quickRow.style.display = 'flex';
+  quickRow.style.justifyContent = 'space-between';
+  quickRow.style.marginTop = '6px';
+  const btnLoadAuto = document.createElement('button');
+  btnLoadAuto.textContent = 'Load last autosave';
+  btnLoadAuto.onclick = () => { if (typeof lastAutoSaveSlot === 'number') loadFromSlot(lastAutoSaveSlot); };
+  quickRow.appendChild(btnLoadAuto);
+
+  const btnClearAll = document.createElement('button');
+  btnClearAll.textContent = 'Clear saves';
+  btnClearAll.onclick = () => { if (confirm('Clear all saves?')) { saveSlots = new Array(MAX_SAVE_SLOTS).fill(null); lastSaveSlot = null; lastAutoSaveSlot = null; persistSavesToStorage(); renderSaveUI(); } };
+  quickRow.appendChild(btnClearAll);
+
+  uiRoot.appendChild(quickRow);
+}
+
+// helper: try to auto-load autosave at map load 
+function tryAutoLoad() {
+  if (!autosaveEnabled) return;
+  if (typeof lastAutoSaveSlot === 'number') {
+    console.log('🔁 Auto-loading last autosave slot', lastAutoSaveSlot);
+    loadFromSlot(lastAutoSaveSlot);
+  } else if (typeof lastSaveSlot === 'number') {
+    // fallback: restore last save
+    console.log('🔁 Auto-loading last manual save slot', lastSaveSlot);
+    loadFromSlot(lastSaveSlot);
+  }
+}
 
 /**
  * @param {CANNON.Body} body
@@ -703,6 +1153,33 @@ loader.load(
 
         createHiddenPathCollider(child);
 
+        // detect savepoint meshes by name (e.g. 'save', 'save1', 'savepoint')
+        if ((child.name || '').toLowerCase().includes('save')) {
+          let slotIndex = null;
+          const n = (child.name || '').toLowerCase();
+          const m = n.match(/save\s*(\d+)/) || n.match(/save(\d+)/);
+          if (m) slotIndex = Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, parseInt(m[1], 10) - 1));
+          if (slotIndex === null) {
+            for (let i = 0; i < MAX_SAVE_SLOTS; ++i) {
+              const occupied = savePoints.some(sp => sp.slotIndex === i);
+              if (!occupied) { slotIndex = i; break; }
+            }
+            if (slotIndex === null) slotIndex = 0;
+          }
+
+          const wb = new THREE.Box3().setFromObject(child);
+          const center = wb.getCenter(new THREE.Vector3());
+          const sphereGeo = new THREE.SphereGeometry(0.25, 12, 12);
+          const spColor = isDarkMode ? THEMES.dark.savePointColor : THEMES.light.savePointColor;
+          const sphereMat = new THREE.MeshStandardMaterial({ color: spColor, transparent: true, opacity: 0.9 });
+          const marker = new THREE.Mesh(sphereGeo, sphereMat);
+          marker.position.copy(center);
+          scene.add(marker);
+
+          savePoints.push({ name: child.name || 'save', slotIndex, pos: center.clone(), visual: marker, activatedAt: 0 });
+          console.log('🔖 Found savepoint:', child.name, '-> slot', slotIndex + 1);
+        }
+
         const n = (child.name || "").toLowerCase();
         if (n === "start" || child.name === "start") {
           startPoint = child;
@@ -804,6 +1281,9 @@ loader.load(
     } else {
       console.warn("start point not found, player remains at default spawn.");
     }
+
+    // attempt to auto-load a saved game state if available (autosave or last manual save)
+    tryAutoLoad();
   },
   undefined,
   (err) => {
@@ -1500,6 +1980,78 @@ function animate() {
         break;
       }
     }
+
+    // Savepoint proximity check (auto-save to designated slot when player reaches a savepoint)
+    if (savePoints && savePoints.length > 0) {
+      const nowSp = performance.now();
+      const px = playerMesh.position;
+      for (let i = 0; i < savePoints.length; i++) {
+        const sp = savePoints[i];
+        if (!sp || !sp.pos) continue;
+        const dist = sp.pos.distanceTo(px);
+        const threshold = 1.2;
+        if (dist < threshold && nowSp - (sp.activatedAt || 0) > 1200) {
+          // save to that slot
+          saveToSlot(sp.slotIndex, `Savepoint ${sp.name || ''}`);
+          lastAutoSaveSlot = sp.slotIndex;
+          persistSavesToStorage();
+          sp.activatedAt = nowSp;
+          // animate marker (brief color change)
+          if (sp.visual && sp.visual.material) {
+            const mat = sp.visual.material;
+            const old = mat.color.clone();
+            mat.color.set(0x33ff66);
+            setTimeout(() => { try { mat.color.copy(old); } catch (e) {} }, 600);
+          }
+          showToast(`Saved at ${sp.name || 'checkpoint'}`, 'success', 900);
+        }
+      }
+    }
+  }
+
+  // update small status diagnostics
+  try {
+    if (statusEl) {
+      statusEl.textContent = `theme=${isDarkMode ? 'dark' : 'light'} | sceneObjs=${scene.children.length} | physBodies=${world.bodies.length}`;
+    }
+  } catch (e) {}
+
+  // Theme transition updates (smooth crossfade)
+  try {
+    if (THEME_ENABLED && themeTransition.active) {
+      const nowT = performance.now();
+      const elapsed = nowT - themeTransition.start;
+      let t = Math.min(1, Math.max(0, elapsed / themeTransition.duration));
+
+      // lerp colors and values
+      const bg = new THREE.Color();
+      bg.lerpColors(themeTransition.from.bg, themeTransition.to.bg, t);
+      scene.background = bg;
+
+      // fog
+      try {
+        scene.fog = new THREE.Fog(new THREE.Color().lerpColors(themeTransition.from.fog, themeTransition.to.fog, t), 10, 80);
+      } catch (e) {}
+
+      ambientLight.color.lerpColors(themeTransition.from.ambientColor, themeTransition.to.ambientColor, t);
+      ambientLight.intensity = themeTransition.from.ambientIntensity + (themeTransition.to.ambientIntensity - themeTransition.from.ambientIntensity) * t;
+
+      sunLight.color.lerpColors(themeTransition.from.sunColor, themeTransition.to.sunColor, t);
+      sunLight.intensity = themeTransition.from.sunIntensity + (themeTransition.to.sunIntensity - themeTransition.from.sunIntensity) * t;
+      sunLight.position.lerpVectors(themeTransition.from.sunPos, themeTransition.to.sunPos, t);
+
+      // debug saved theme progress
+      if (t >= 1) {
+        themeTransition.active = false;
+        currentThemeName = targetThemeName;
+        // ensure final values exact
+        applyTheme(currentThemeName);
+      }
+    }
+  } catch (e) {
+    // don't let theme transition crash the frame
+    console.warn('Theme transition error', e);
+    themeTransition.active = false;
   }
 
   renderer.render(scene, camera);

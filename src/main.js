@@ -84,8 +84,8 @@ import * as CANNON from "cannon-es";
       background: rgba(255,255,255,0.1);
       border: 2px solid rgba(255,255,255,0.25);
       pointer-events: auto;
-      touch-action: none;          
-      z-index: 10001;              
+      touch-action: none;      /* important on mobile */
+      z-index: 10001;          /* above the canvas */
     }
 
     #touch-joystick-knob {
@@ -139,51 +139,44 @@ import * as CANNON from "cannon-es";
     <div id="touch-jump">Jump</div>
   `;
   document.body.appendChild(hud);
-  // Move joystick and jump button out of HUD and show only on touch devices so they receive pointer events
+
+  // 🔧 Always show joystick & jump (desktop + mobile), pinned above canvas
   try {
     const joyEl = document.getElementById("touch-joystick");
     const jumpEl = document.getElementById("touch-jump");
-    const isTouch =
-      typeof window !== "undefined" &&
-      ("ontouchstart" in window || navigator.maxTouchPoints > 0);
 
     if (joyEl) {
-      if (isTouch) {
-        document.body.appendChild(joyEl);
-        joyEl.style.display = "block";
-        joyEl.style.position = "fixed";   
-        joyEl.style.zIndex = "10001";     
-        joyEl.style.touchAction = "none"; 
-      } else {
-        joyEl.style.display = "none";
-      }
+      document.body.appendChild(joyEl);
+      joyEl.style.display = "block";
+      joyEl.style.position = "fixed";
+      joyEl.style.bottom = "80px";
+      joyEl.style.left = "80px";
+      joyEl.style.zIndex = "10001";
+      joyEl.style.touchAction = "none";
     }
 
     if (jumpEl) {
-      if (isTouch) {
-        document.body.appendChild(jumpEl);
-        jumpEl.style.display = "flex";
-        jumpEl.style.position = "fixed";
-        jumpEl.style.right = "18px";
-        jumpEl.style.bottom = "18px";
-        jumpEl.style.width = "72px";
-        jumpEl.style.height = "72px";
-        jumpEl.style.alignItems = "center";
-        jumpEl.style.justifyContent = "center";
-        jumpEl.style.borderRadius = "12px";
-        jumpEl.style.background = "rgba(255,255,255,0.12)";
-        jumpEl.style.pointerEvents = "auto";
-        jumpEl.style.fontWeight = "700";
-        jumpEl.style.color = "#fff";
-        jumpEl.style.zIndex = "10002";
-      } else {
-        jumpEl.style.display = "none";
-      }
+      document.body.appendChild(jumpEl);
+      jumpEl.style.display = "flex";
+      jumpEl.style.position = "fixed";
+      jumpEl.style.right = "18px";
+      jumpEl.style.bottom = "18px";
+      jumpEl.style.width = "72px";
+      jumpEl.style.height = "72px";
+      jumpEl.style.alignItems = "center";
+      jumpEl.style.justifyContent = "center";
+      jumpEl.style.borderRadius = "12px";
+      jumpEl.style.background = "rgba(255,255,255,0.12)";
+      jumpEl.style.pointerEvents = "auto";
+      jumpEl.style.fontWeight = "700";
+      jumpEl.style.color = "#fff";
+      jumpEl.style.zIndex = "10002";
     }
   } catch (e) {
     // ignore
   }
 })();
+
 
 const toastEl = /** @type {HTMLDivElement} */ (
   document.getElementById("toast")
@@ -314,20 +307,20 @@ if (joy && knob) {
   joy.addEventListener(
     "touchstart",
     (e) => {
-      e.preventDefault(); 
+      e.preventDefault(); // keep touches on the joystick, don’t scroll
       const t = e.touches[0];
       joyActive = true;
       joyStartX = t.clientX;
       joyStartY = t.clientY;
     },
-    { passive: false }    
+    { passive: false }
   );
 
   joy.addEventListener(
     "touchmove",
     (e) => {
       if (!joyActive) return;
-      e.preventDefault(); 
+      e.preventDefault();
 
       const t = e.touches[0];
 

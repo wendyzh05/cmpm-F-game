@@ -53,3 +53,26 @@ Our project continues to use the same technologies defined in F1: Three.js for r
 
 ## Reflection
 Looking back on our development process, our team’s approach changed significantly since F1. Early on, we were overly ambitious and realized halfway through that our original ideas were unrealistic given our experience and the project timeline. Learning from that, we chose to simplify our goals for this project and focus on building something achievable and stable. This shift allowed us to work more efficiently, understand our tools better, and ultimately deliver a complete game that still meets all the project requirements.
+
+# Devlog Entry - 12/05
+
+## Selected requirements
+1) Save system: We selected this requirement because we were already planning to track the player progress by adding checkpoints. So extending this into a persistent save/load system feature felt more manageable. 
+2) Visual themes: We selected this requirement because our game originally had a very light visual presentation, and we thought it would be good to offer a darker version as well.
+3) i18n + l10n: We selected this because our HUD already contains many text instructions, toasts and indicators. Supporting multiple languages made the UI more flexible.
+4) External DSL: We selected this requirement because our project already relied on structured configuration data such as JSON. Using a DSL to define savepoints and theme overrides let us separate design data from code, making the system easier to update without modifying JavaScript.
+
+## How we satisfied the software requirements
+We implemented a fully complete save system using browser localStorage. The game maintains up to three save slots, each storing player position, puzzle-box physics state, whether the puzzle is solved, and a timestamp. The UI includes save, load, and delete buttons for each slot, all rendered dynamically through DOM elements. Autosaving runs on a 10-second interval and a status display highlights which slot was last saved or autosaved.
+
+Our theme system supports light mode and dark mode. Themes change the background color, ambient light color, sun light direction & intensity, and UI color palette. The game auto-detects the system theme preference and applies dynamic transitions on change.
+
+All text is stored in a structured JavaScript i18n dictionary with entries for English (en), Chinese (zh), and Arabic (ar). Every string used in the HUD, toast system, inventory, room instructions, and save UI is referenced through translation keys using the t() helper. The arabic support required implementing additional behavior by switching the entire DOM to right-to-left layout. 
+
+We implemented an external DSL using a JSON file located at /design/game.gamedsl. The DSL exposes two important design-layer systems:
+- Savepoint definitions (naming, slot assignment, custom labels)
+- Theme overrides (modifying light/dark ambient intensities and sun intensity)
+The game loads this DSL at startup using fetch(), parses it, and applies the configuration before gameplay begins. And JSON syntax ensures compatibility with existing tools, and editors provide automatic syntax highlighting.
+
+## Reflection
+Originally, our plan for F3 included adding a touchscreen controls, so the game would be playable on mobile. However, we ran into a persistent HUD issue where the on-screen movement buttons would not appear, even though the rest of the HUD was functioning correctly. After spending time debugging the event-handling problems without success, we realized that getting the touchscreen controls would take much longer than expected. Because of this, we shifted our plan and decided to implement the external DSL requirement instead, which fit smoothly into our workflow and still allowed us to meet the F3 goals. From past experiences, we’ve learned that when a feature is not working properly despite repeated attempts to fix it, it’s sometimes better to pivot rather than force the original plan. Applying that lesson here helped us avoid getting stuck and allowed us to focus on a requirement that we could implement cleanly and effectively.

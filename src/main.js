@@ -1215,6 +1215,12 @@ function renderSaveUI() {
 
 // helper: try to auto-load autosave at map load 
 function tryAutoLoad() {
+  // Skip auto-load if we just restarted
+  if (sessionStorage.getItem('gameRestarted') === 'true') {
+    sessionStorage.removeItem('gameRestarted');
+    console.log('🔄 Game was restarted, skipping auto-load');
+    return;
+  }
   if (!autosaveEnabled) return;
   if (typeof lastAutoSaveSlot === 'number') {
     console.log('🔁 Auto-loading last autosave slot', lastAutoSaveSlot);
@@ -1416,50 +1422,58 @@ loader.load(
 
         createHiddenPathCollider(child);
 
-        (function() {
-          const nm = (child.name || '').toString();
-          const nameLower = nm.toLowerCase();
+        // Skip creating savepoint markers for end platforms and other excluded objects
+        const childNameLower = (child.name || '').toLowerCase();
+        const isEndPlatform = childNameLower === 'end1' || childNameLower === 'end2' || 
+                             childNameLower === 'end3' || childNameLower === 'end4';
+        const isColObject = childNameLower.startsWith('col_');
+        
+        if (!isEndPlatform && !isColObject) {
+          (function() {
+            const nm = (child.name || '').toString();
+            const nameLower = nm.toLowerCase();
 
-          let slotIndex = null;
-          let displayName = nm;
-          try {
-            if (designSaveDefs && designSaveDefs.length > 0) {
-              const def = designSaveDefs.find(s => (s.name || '').toString().toLowerCase() === nameLower);
-              if (def) {
-                slotIndex = typeof def.slot === 'number' ? Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, def.slot)) : null;
-                if (def.label) displayName = def.label;
+            let slotIndex = null;
+            let displayName = nm;
+            try {
+              if (designSaveDefs && designSaveDefs.length > 0) {
+                const def = designSaveDefs.find(s => (s.name || '').toString().toLowerCase() === nameLower);
+                if (def) {
+                  slotIndex = typeof def.slot === 'number' ? Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, def.slot)) : null;
+                  if (def.label) displayName = def.label;
+                }
               }
+            } catch (e) {
+              // ignore DSL errors
             }
-          } catch (e) {
-            // ignore DSL errors
-          }
 
-          if (slotIndex === null && nameLower.includes('save')) {
-            const m = nameLower.match(/save\s*(\d+)/) || nameLower.match(/save(\d+)/);
-            if (m) slotIndex = Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, parseInt(m[1], 10) - 1));
-          }
-
-          if (slotIndex === null) {
-            for (let i = 0; i < MAX_SAVE_SLOTS; ++i) {
-              const occupied = savePoints.some(sp => sp.slotIndex === i);
-              if (!occupied) { slotIndex = i; break; }
+            if (slotIndex === null && nameLower.includes('save')) {
+              const m = nameLower.match(/save\s*(\d+)/) || nameLower.match(/save(\d+)/);
+              if (m) slotIndex = Math.max(0, Math.min(MAX_SAVE_SLOTS - 1, parseInt(m[1], 10) - 1));
             }
-            if (slotIndex === null) slotIndex = 0;
-          }
 
-          // Create a visual marker for the savepoint
-          const wb = new THREE.Box3().setFromObject(child);
-          const center = wb.getCenter(new THREE.Vector3());
-          const sphereGeo = new THREE.SphereGeometry(0.25, 12, 12);
-          const spColor = isDarkMode ? THEMES.dark.savePointColor : THEMES.light.savePointColor;
-          const sphereMat = new THREE.MeshStandardMaterial({ color: spColor, transparent: true, opacity: 0.9 });
-          const marker = new THREE.Mesh(sphereGeo, sphereMat);
-          marker.position.copy(center);
-          scene.add(marker);
+            if (slotIndex === null) {
+              for (let i = 0; i < MAX_SAVE_SLOTS; ++i) {
+                const occupied = savePoints.some(sp => sp.slotIndex === i);
+                if (!occupied) { slotIndex = i; break; }
+              }
+              if (slotIndex === null) slotIndex = 0;
+            }
 
-          savePoints.push({ name: displayName || child.name || 'save', slotIndex, pos: center.clone(), visual: marker, activatedAt: 0 });
-          console.log('🔖 Found savepoint:', child.name, '-> slot', slotIndex + 1, '(label:', displayName, ')');
-        })();
+            // Create a visual marker for the savepoint
+            const wb = new THREE.Box3().setFromObject(child);
+            const center = wb.getCenter(new THREE.Vector3());
+            const sphereGeo = new THREE.SphereGeometry(0.25, 12, 12);
+            const spColor = isDarkMode ? THEMES.dark.savePointColor : THEMES.light.savePointColor;
+            const sphereMat = new THREE.MeshStandardMaterial({ color: spColor, transparent: true, opacity: 0.9 });
+            const marker = new THREE.Mesh(sphereGeo, sphereMat);
+            marker.position.copy(center);
+            scene.add(marker);
+
+            savePoints.push({ name: displayName || child.name || 'save', slotIndex, pos: center.clone(), visual: marker, activatedAt: 0 });
+            console.log('🔖 Found savepoint:', child.name, '-> slot', slotIndex + 1, '(label:', displayName, ')');
+          })();
+        }
 
         const n = (child.name || "").toLowerCase();
         if (n === "start" || child.name === "start") {
@@ -1579,6 +1593,14 @@ function restartGame() {
 
   // small delay so the toast can show before reload
   setTimeout(() => {
+    // Mark that we're restarting to prevent auto-load
+    sessionStorage.setItem('gameRestarted', 'true');
+    // Clear save state so game doesn't auto-load old progress
+    localStorage.removeItem(SAVE_KEY);
+    lastSaveSlot = null;
+    lastAutoSaveSlot = null;
+    // Hide end platforms before reload
+    endMeshes.forEach((m) => (m.visible = false));
     window.location.reload();
   }, 300);
 }
